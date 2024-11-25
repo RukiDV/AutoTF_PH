@@ -1,0 +1,23 @@
+#include <iostream>
+#include "gpu_renderer.hpp"
+#include "scene.hpp"
+
+int main(int argc, char* argv[])
+{
+  // get scene from the file provided as cli argument
+  std::string path;
+  if (argc > 1) path = argv[1];
+  else
+  {
+    std::cout << "Provide path of file to load!" << std::endl;
+    return 1;
+  }
+  Scene scene;
+  if (load_scene_from_file(path, scene) != 0)
+  {
+    std::cerr << "Failed to parse file!" << std::endl;
+    return 1;
+  }
+  if (gpu_render(scene) != 0) return 1;
+  return 0;
+}

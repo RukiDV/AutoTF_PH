@@ -1,0 +1,50 @@
+#version 460
+
+layout(local_size_x = 32, local_size_y = 32) in;
+
+struct PixelData {
+    vec4 col;
+};
+
+layout(constant_id = 0) const uint volume_width = 1;
+layout(constant_id = 1) const uint volume_height = 1;
+layout(constant_id = 2) const uint volume_depth = 1;
+
+layout(binding = 0) readonly buffer Volume { uint data[]; };
+layout(binding = 2, rgba8) uniform restrict writeonly image2D output_image;
+layout(binding = 3) readonly buffer InputPixelBuffer { PixelData input_pixel_data[]; };
+layout(binding = 4) writeonly buffer OutputPixelBuffer { PixelData output_pixel_data[]; };
+
+void main() {
+    uvec2 resolution = uvec2(gl_NumWorkGroups.xy * gl_WorkGroupSize.xy);
+    uvec2 coord = gl_GlobalInvocationID.xy;
+    if (coord.x >= resolution.x || coord.y >= resolution.y) {
+        return;
+    }
+
+    vec3 ray_origin = vec3(0.0, 0.0, -1.0);
+    vec3 ray_dir = normalize(vec3((coord.xy / resolution) * 2.0 - 1.0, 1.0));
+    float t = 0.0;
+    float step_size = 0.01;
+    vec3 color = vec3(0.0);
+
+    for (int i = 0; i < 100; ++i) {
+        vec3 pos = ray_origin + t * ray_dir;
+
+        // Scale pos to volume dimensions and clamp to ensure it's within bounds
+        vec3 volume_pos = pos * vec3(volume_width, volume_height, volume_depth);
+        volume_pos = clamp(volume_pos, vec3(0.0), vec3(volume_width, volume_height, volume_depth) - vec3(1.0));
+
+        uint index = int(volume_pos.z) * volume_height * volume_width + int(volume_pos.y) * volume_width + int(volume_pos.x);
+        float density = data[index];
+        color += vec3(density);
+        t += step_size;
+    }
+
+    vec4 final_color = vec4(color, 1.0);
+    imageStore(output_image, ivec2(coord), vec4(1.0, 0.0, 1.0, 1.0));
+
+    // Writing to output pixel buffer
+    uint pixel_index = coord.y * resolution.x + coord.x;
+    output_pixel_data[pixel_index].col = final_color;
+}
