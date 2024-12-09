@@ -2,6 +2,7 @@
 
 #include <SDL2/SDL.h>
 #include <vector>
+#include <glm/vec2.hpp>
 
 enum class Key : uint32_t
 {
@@ -59,6 +60,7 @@ enum class Key : uint32_t
 class EventHandler
 {
 public:
+  glm::vec2 mouse_motion;
 
   EventHandler();
   void dispatch_event(SDL_Event e);

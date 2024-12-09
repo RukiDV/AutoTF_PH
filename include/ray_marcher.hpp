@@ -10,10 +10,10 @@
 
 namespace ve
 {
-class Ray_Marcher
+class RayMarcher
 {
 public:
-  Ray_Marcher(const VulkanMainContext& vmc, Storage& storage);
+  RayMarcher(const VulkanMainContext& vmc, Storage& storage);
   void setup_storage(AppState& app_state, const Volume& volume);
   void construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution);
   void destruct();

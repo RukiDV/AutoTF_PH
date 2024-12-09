@@ -19,8 +19,6 @@ int main(int argc, char* argv[])
     return 1;
   }
 
-  AppState app_state;
-  GPU_Renderer renderer(app_state, volume); 
-  if (renderer.gpu_render(volume) != 0) return 1;
+  if (gpu_render(volume) != 0) return 1;
   return 0;
 }

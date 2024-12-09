@@ -19,7 +19,7 @@ namespace ve
 class WorkContext
 {
 public:
-  WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc, AppState& app_state);
+  WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc);
   void construct(AppState& app_state, const Volume& volume);
   void destruct();
   void reload_shaders();
@@ -33,8 +33,7 @@ private:
   Storage storage;
   Swapchain swapchain;
   Renderer renderer;
-  Ray_Marcher ray_marcher;
-  Camera::Data old_cam_data;
+  RayMarcher ray_marcher;
   uint32_t read_only_buffer_idx = 0;
   UI ui;
   std::vector<Synchronization> syncs;

@@ -1,4 +1,5 @@
 #pragma once
-#include "scene.hpp"
 
-int gpu_render(const Scene& scene);
+#include "volume.hpp"
+
+int gpu_render(const Volume& volume);

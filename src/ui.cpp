@@ -66,6 +66,17 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
   ImGui_ImplSDL2_NewFrame();
   ImGui::NewFrame();
   ImGui::Begin("AutoTF_PH");
+  if (ImGui::CollapsingHeader("Navigation"))
+  {
+      ImGui::Text("'W'A'S'D'Q'E': movement");
+      ImGui::Text("Mouse_L || Arrow-Keys: panning");
+      ImGui::Text("'+'-': change movement speed");
+      ImGui::Text("'G': Show/Hide UI");
+      ImGui::Text("'F1': Screenshot");
+  }
+  // camera
+  ImGui::Separator();
+  ImGui::TextColored(ImVec4(0.0, 1.0, 0.0, 1.0), "Camera");
   ImGui::PushItemWidth(80.0f);
   ImGui::Separator();
   ImGui::Text("'G': Show/Hide UI");

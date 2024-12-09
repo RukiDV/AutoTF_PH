@@ -5,12 +5,12 @@
 
 namespace ve
 {
-Ray_Marcher::Ray_Marcher(const VulkanMainContext& vmc, Storage& storage) : vmc(vmc), storage(storage), clear_pipeline(vmc), pipeline(vmc), dsh(vmc, frames_in_flight)
+RayMarcher::RayMarcher(const VulkanMainContext& vmc, Storage& storage) : vmc(vmc), storage(storage), clear_pipeline(vmc), pipeline(vmc), dsh(vmc, frames_in_flight)
 {
   clear_storage_indices();
 }
 
-void Ray_Marcher::setup_storage(AppState& app_state, const Volume& volume)
+void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
 {
   // set up ray marcher buffer
   std::vector<glm::vec3> initial_ray_macher_data(app_state.get_render_extent().width * app_state.get_render_extent().height);
@@ -34,7 +34,7 @@ void Ray_Marcher::setup_storage(AppState& app_state, const Volume& volume)
   images[RAY_MARCHER_IMAGE] = storage.add_image("ray_marcher_output_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, std::vector<uint32_t>{vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute}, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
 }
 
-void Ray_Marcher::construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution)
+void RayMarcher::construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution)
 {
   std::cout << "Constructing ray marcher" << std::endl;
   for (uint32_t i : images) storage.get_image(i).transition_image_layout(vcc, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eNone);
@@ -43,7 +43,7 @@ void Ray_Marcher::construct(AppState& app_state, VulkanCommandContext& vcc, glm:
   std::cout << "Successfully constructed ray marcher" << std::endl;
 }
 
-void Ray_Marcher::destruct()
+void RayMarcher::destruct()
 {
   for (int32_t i : buffers)
   {
@@ -59,20 +59,20 @@ void Ray_Marcher::destruct()
   dsh.destruct();
 }
 
-void Ray_Marcher::reload_shaders()
+void RayMarcher::reload_shaders()
 {
     pipeline.destruct();
     //create_pipeline(); // TODO ruki
 }
 
-void Ray_Marcher::compute(vk::CommandBuffer& cb, AppState& app_state, uint32_t read_only_buffer_idx)
+void RayMarcher::compute(vk::CommandBuffer& cb, AppState& app_state, uint32_t read_only_buffer_idx)
 {
   cb.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
   cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline.get_layout(), 0, dsh.get_sets()[read_only_buffer_idx], {});
   cb.dispatch((app_state.get_render_extent().width + 31) / 32, (app_state.get_render_extent().height + 31) / 32, 1);
 }
 
-void Ray_Marcher::create_pipeline(const AppState& app_state, glm::uvec3 volume_resolution)
+void RayMarcher::create_pipeline(const AppState& app_state, glm::uvec3 volume_resolution)
 {
   std::array<vk::SpecializationMapEntry, 3> spec_entries;
   spec_entries[0] = vk::SpecializationMapEntry(0, 0, sizeof(uint32_t));
@@ -84,7 +84,7 @@ void Ray_Marcher::create_pipeline(const AppState& app_state, glm::uvec3 volume_r
   pipeline.construct(dsh.get_layouts()[0], ray_marcher_shader_info, 0);
 }
 
-void Ray_Marcher::create_descriptor_set()
+void RayMarcher::create_descriptor_set()
 {
   dsh.add_binding(0, vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eCompute);
   dsh.add_binding(1, vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eCompute);
@@ -107,7 +107,7 @@ void Ray_Marcher::create_descriptor_set()
   dsh.construct();
 }
 
-void Ray_Marcher::clear_storage_indices()
+void RayMarcher::clear_storage_indices()
 {
   for (uint32_t i = 0; i < BUFFER_COUNT; i++) buffers[i] = -1;
   for (uint32_t i = 0; i < IMAGE_COUNT; i++) images[i] = -1;
