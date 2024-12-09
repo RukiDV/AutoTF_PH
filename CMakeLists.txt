@@ -6,7 +6,7 @@ set(SDL2_DIR "${PROJECT_SOURCE_DIR}/dependencies/SDL2")
 
 set(SOURCE_FILES
   src/gpu_renderer.cpp
-  src/scene.cpp
+  src/volume.cpp
   src/util/random_generator.cpp
   src/vk/command_pool.cpp
   src/vk/descriptor_set_handler.cpp
@@ -29,6 +29,8 @@ set(SOURCE_FILES
   src/ui.cpp
   src/window.cpp
   src/work_context.cpp
+  src/camera.cpp
+  src/settings_cache.cpp
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl2.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_vulkan.cpp"

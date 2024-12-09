@@ -3,17 +3,17 @@
 
 namespace ve
 {
-WorkContext::WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc)
+WorkContext::WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc, AppState& app_state)
   : vmc(vmc), vcc(vcc), storage(vmc, vcc), swapchain(vmc, vcc, storage), renderer(vmc, storage), ray_marcher(vmc, storage), ui(vmc)
 {}
 
-void WorkContext::construct(AppState& app_state, const Scene& scene)
+void WorkContext::construct(AppState& app_state, const Volume& volume)
 {
   vcc.add_graphics_buffers(frames_in_flight);
   vcc.add_compute_buffers(2);
   vcc.add_transfer_buffers(1);
   renderer.setup_storage(app_state);
-  ray_marcher.setup_storage(app_state, scene);
+  ray_marcher.setup_storage(app_state, volume);
   swapchain.construct(app_state.vsync);
   app_state.get_window_extent() = swapchain.get_extent();
   for (uint32_t i = 0; i < frames_in_flight; ++i)
@@ -22,7 +22,7 @@ void WorkContext::construct(AppState& app_state, const Scene& scene)
   }
   const glm::uvec2 resolution(app_state.get_render_extent().width, app_state.get_render_extent().height);
   renderer.construct(swapchain.get_render_pass(), app_state);
-  ray_marcher.construct(app_state, vcc, scene.resolution);
+  ray_marcher.construct(app_state, vcc, volume.resolution);
   ui.construct(vcc, swapchain.get_render_pass(), frames_in_flight);
 }
 
@@ -38,13 +38,26 @@ void WorkContext::destruct()
   storage.clear();
 }
 
+ void WorkContext::reload_shaders()
+  {
+      vmc.logical_device.get().waitIdle();
+      ray_marcher.reload_shaders();
+  }
+
 void WorkContext::draw_frame(AppState &app_state)
 {
   syncs[app_state.current_frame].wait_for_fence(Synchronization::F_RENDER_FINISHED);
   syncs[app_state.current_frame].reset_fence(Synchronization::F_RENDER_FINISHED);
   vk::ResultValue<uint32_t> image_idx = vmc.logical_device.get().acquireNextImageKHR(swapchain.get(), uint64_t(-1), syncs[app_state.current_frame].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
   VE_CHECK(image_idx.result, "Failed to acquire next image!");
-  render(image_idx.value, app_state);
+
+  uint32_t read_only_image = (app_state.total_frames / frames_in_flight) % frames_in_flight;
+  if (app_state.save_screenshot)
+  {
+    storage.get_image_by_name("ray_marcher_output_texture").save_to_file(vcc);
+    app_state.save_screenshot = false;
+  }
+  render(image_idx.value, app_state, read_only_image);
   app_state.current_frame = (app_state.current_frame + 1) % frames_in_flight;
   app_state.total_frames++;
 }
@@ -56,15 +69,19 @@ vk::Extent2D WorkContext::recreate_swapchain(bool vsync)
   return swapchain.get_extent();
 }
 
-void WorkContext::render(uint32_t image_idx, AppState& app_state)
+void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image)
 {
   // dispatch next compute iteration as soon as the previous one is done
-  if (syncs[0].is_fence_finished(Synchronization::F_COMPUTE_FINISHED))
+  if (app_state.current_frame == 0)
   {
-    // update index of buffer that is now safe to read
+    syncs[0].wait_for_fence(Synchronization::F_COMPUTE_FINISHED);
+    // reset fence for the next compute iteration
     syncs[0].reset_fence(Synchronization::F_COMPUTE_FINISHED);
 
-    // wait for previous rendering job that uses the buffer that will now be written
+    app_state.cam.update_data();
+    storage.get_buffer_by_name("ray_marcher_uniform_buffer").update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
+
+    // wait for the previous rendering job that uses the buffer that will now be written
     syncs[1 - app_state.current_frame].wait_for_fence(Synchronization::F_RENDER_FINISHED);
 
     vk::CommandBuffer& cb = vcc.get_one_time_transfer_buffer();
@@ -86,27 +103,27 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state)
     vmc.get_transfer_queue().submit(si, syncs[0].get_fence(Synchronization::F_COPY_FINISHED));
     syncs[0].wait_for_fence(Synchronization::F_COPY_FINISHED);
     syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
-    
-    vk::CommandBuffer& compute_cb = vcc.begin(vcc.compute_cbs[1]);
+
+    vk::CommandBuffer& compute_cb = vcc.begin(vcc.compute_cbs[0]);
     ray_marcher.compute(compute_cb, app_state, read_only_buffer_idx);
     compute_cb.end();
     read_only_buffer_idx = (read_only_buffer_idx + 1) % frames_in_flight;
 
-    vk::SubmitInfo compute_si(0, nullptr, nullptr, 1, &vcc.compute_cbs[1]);
+    vk::SubmitInfo compute_si(0, nullptr, nullptr, 1, &vcc.compute_cbs[0]);
     vmc.get_compute_queue().submit(compute_si, syncs[0].get_fence(Synchronization::F_COMPUTE_FINISHED));
   }
 
-  vk::CommandBuffer& cb = vcc.begin(vcc.graphics_cbs[app_state.current_frame]);
+  vk::CommandBuffer& graphics_cb = vcc.begin(vcc.graphics_cbs[app_state.current_frame]);
   Image& render_texture = storage.get_image_by_name("render_texture");
   if (render_texture.get_layout() != vk::ImageLayout::eShaderReadOnlyOptimal)
   {
-    perform_image_layout_transition(cb, render_texture.get_image(), render_texture.get_layout(), vk::ImageLayout::eShaderReadOnlyOptimal, vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eMemoryWrite, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
+    perform_image_layout_transition(graphics_cb, render_texture.get_image(), render_texture.get_layout(), vk::ImageLayout::eShaderReadOnlyOptimal, vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eMemoryWrite, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
     render_texture.set_layout(vk::ImageLayout::eShaderReadOnlyOptimal);
   }
-  renderer.render(cb, app_state, read_only_buffer_idx, swapchain.get_framebuffer(image_idx), swapchain.get_render_pass().get());
-  if (app_state.show_ui) ui.draw(cb, app_state);
-  cb.endRenderPass();
-  cb.end();
+  renderer.render(graphics_cb, app_state, read_only_buffer_idx, swapchain.get_framebuffer(image_idx), swapchain.get_render_pass().get());
+  if (app_state.show_ui) ui.draw(graphics_cb, app_state);
+  graphics_cb.endRenderPass();
+  graphics_cb.end();
 
   std::vector<vk::Semaphore> render_wait_semaphores;
   std::vector<vk::PipelineStageFlags> render_wait_stages;

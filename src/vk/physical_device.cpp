@@ -15,7 +15,7 @@ void PhysicalDevice::construct(const Instance& instance, const std::optional<vk:
 
   std::vector<vk::PhysicalDevice> physical_devices = instance.get_physical_devices();
   std::unordered_set<uint32_t> suitable_p_devices;
-  for (uint32_t i = 0; i < physical_devices.size(); ++i)
+  for (uint32_t i = 0; i < 1; ++i)
   {
     if (is_device_suitable(i, physical_devices[i], surface))
     {

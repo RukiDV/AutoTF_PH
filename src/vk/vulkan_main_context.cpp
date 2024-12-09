@@ -39,6 +39,7 @@ void VulkanMainContext::construct(const uint32_t width, const uint32_t height)
   logical_device.construct(physical_device, queue_family_indices, queues);
   create_vma_allocator();
   setup_debug_messenger();
+  std::cout << "Created VulkanMainContext" << std::endl;
 }
 
 void VulkanMainContext::destruct()
@@ -50,6 +51,7 @@ void VulkanMainContext::destruct()
   func(instance.get(), debug_messenger, nullptr);
   instance.destruct();
   if (window) window->destruct();
+  std::cout << "Destroyed VulkanMainContext" << std::endl;
 }
 
 std::vector<vk::SurfaceFormatKHR> VulkanMainContext::get_surface_formats() const

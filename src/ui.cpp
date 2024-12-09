@@ -65,7 +65,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplSDL2_NewFrame();
   ImGui::NewFrame();
-  ImGui::Begin("RukiDV");
+  ImGui::Begin("AutoTF_PH");
   ImGui::PushItemWidth(80.0f);
   ImGui::Separator();
   ImGui::Text("'G': Show/Hide UI");

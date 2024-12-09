@@ -26,6 +26,7 @@ void LogicalDevice::construct(const PhysicalDevice& p_device, const QueueFamilyI
 
   vk::PhysicalDeviceVulkan12Features device_features_12;
   device_features_12.bufferDeviceAddress = VK_TRUE;
+  device_features_12.storageBuffer8BitAccess = VK_TRUE;
 
   vk::PhysicalDeviceVulkan13Features device_features_13;
   device_features_13.pNext = &device_features_12;
@@ -37,8 +38,9 @@ void LogicalDevice::construct(const PhysicalDevice& p_device, const QueueFamilyI
   core_device_features.fillModeNonSolid = VK_TRUE;
   core_device_features.fragmentStoresAndAtomics = VK_TRUE;
   core_device_features.wideLines = VK_TRUE;
-
+  
   vk::PhysicalDeviceFeatures2 device_features;
+  device_features.sType = vk::StructureType::ePhysicalDeviceFeatures2;
   device_features.pNext = &device_features_13;
   device_features.features = core_device_features;
 

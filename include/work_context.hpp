@@ -11,7 +11,7 @@
 #include "vk/vulkan_main_context.hpp"
 #include "vk/renderer.hpp"
 #include "vk/synchronization.hpp"
-#include "scene.hpp"
+#include "volume.hpp"
 
 namespace ve
 {
@@ -19,9 +19,10 @@ namespace ve
 class WorkContext
 {
 public:
-  WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc);
-  void construct(AppState& app_state, const Scene& scene);
+  WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc, AppState& app_state);
+  void construct(AppState& app_state, const Volume& volume);
   void destruct();
+  void reload_shaders();
   void draw_frame(AppState& app_state);
   vk::Extent2D recreate_swapchain(bool vsync);
   std::vector<float> get_result_values();
@@ -33,11 +34,12 @@ private:
   Swapchain swapchain;
   Renderer renderer;
   Ray_Marcher ray_marcher;
+  Camera::Data old_cam_data;
   uint32_t read_only_buffer_idx = 0;
   UI ui;
   std::vector<Synchronization> syncs;
   bool compute_finished = false;
-
-  void render(uint32_t image_idx, AppState& app_state);
+  uint32_t uniform_buffer;
+  void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
 };
 } // namespace ve

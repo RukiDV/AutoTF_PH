@@ -3,10 +3,10 @@
 #include <vector>
 #include "glm/vec3.hpp"
 
-struct Scene
+struct Volume
 {
   glm::uvec3 resolution;
   std::vector<uint8_t> data;
 };
 
-[[nodiscard]] int load_scene_from_file(const std::string& path, Scene& scene);
+[[nodiscard]] int load_volume_from_file(const std::string& path, Volume& volume);

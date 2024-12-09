@@ -9,6 +9,7 @@ Window::Window(const uint32_t width, const uint32_t height)
 {
   SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
   window = SDL_CreateWindow("AutoTF_PH", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_ALLOW_HIGHDPI);
+  std::cout << height << "," << width << std::endl;
 }
 
 void Window::destruct()

@@ -135,10 +135,10 @@ void Swapchain::create_framebuffers()
     fbci.attachmentCount = attachments.size();
     fbci.pAttachments = attachments.data();
     fbci.width = extent.width;
-    std::cout << fbci.width << std::endl;
     fbci.height = extent.height;
-    std::cout << fbci.height << std::endl;
     fbci.layers = 1;
+
+    std::cout << fbci.width << "," << fbci.height << std::endl;
 
     framebuffers.push_back(vmc.logical_device.get().createFramebuffer(fbci));
   }
