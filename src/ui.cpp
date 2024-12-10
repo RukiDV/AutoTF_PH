@@ -77,6 +77,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
   // camera
   ImGui::Separator();
   ImGui::TextColored(ImVec4(0.0, 1.0, 0.0, 1.0), "Camera");
+  ImGui::DragFloat("Camera speed", &app_state.move_speed, 10.0f, 0.0f, 100.0f);
   ImGui::PushItemWidth(80.0f);
   ImGui::Separator();
   ImGui::Text("'G': Show/Hide UI");
