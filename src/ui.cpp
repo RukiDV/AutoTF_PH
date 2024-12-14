@@ -80,6 +80,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
   ImGui::DragFloat("Camera speed", &app_state.move_speed, 10.0f, 0.0f, 100.0f);
   ImGui::PushItemWidth(80.0f);
   ImGui::Separator();
+  ImGui::Text((std::to_string(app_state.time_diff * 1000) + " ms; FPS: " + std::to_string(1.0 / app_state.time_diff)).c_str());
   ImGui::Text("'G': Show/Hide UI");
   ImGui::End();
   ImGui::EndFrame();

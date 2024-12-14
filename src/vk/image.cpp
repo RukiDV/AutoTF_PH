@@ -1,6 +1,14 @@
 #include "vk/image.hpp"
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include <cmath>
+#include <fstream>
+#include <filesystem>
+#include <stb/stb_image.h>
+#include <stb/stb_image_write.h>
+
+
 #include "vk/buffer.hpp"
 
 namespace ve
@@ -260,6 +268,82 @@ void Image::transition_image_layout(VulkanCommandContext& vcc, vk::ImageLayout n
   perform_image_layout_transition(cb, image, layout, new_layout, src_stage_flags, dst_stage_flags, src_access_flags, dst_access_flags, 0, mip_levels, layer_count);
   vcc.submit_graphics(cb, true);
   layout = new_layout;
+}
+
+void Image::save_to_file(VulkanCommandContext& vcc)
+{
+    vk::ImageLayout old_layout = layout;
+    vk::CommandBuffer& cb = vcc.get_one_time_graphics_buffer();
+    auto [dst_image, tmp_vmaa] = create_image(std::vector<uint32_t>{vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer}, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, vk::SampleCountFlagBits::e1, false, format, vk::Extent3D(w, h, 1), layer_count, vmc.va, true);
+
+    perform_image_layout_transition(cb, dst_image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eTransferWrite, 0, 1, 1);
+    perform_image_layout_transition(cb, image, old_layout, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eMemoryRead ,vk::AccessFlagBits::eTransferRead, 0, 1, 1);
+
+    copy_image(cb, image, dst_image, w, h, 1);
+
+    perform_image_layout_transition(cb, dst_image, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
+    perform_image_layout_transition(cb, image, vk::ImageLayout::eTransferSrcOptimal, old_layout, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferRead, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
+    vcc.submit_graphics(cb, true);
+
+    // create target directory if needed
+    std::string filename("images/");
+    std::filesystem::path images_path(filename);
+    if (!std::filesystem::exists(images_path))
+    {
+        std::filesystem::create_directory(images_path);
+    }
+    // getting time to add it to filename
+    {
+        time_t now = time(nullptr);
+        tm tstruct;
+        char buf[80];
+        localtime_r(&now, &tstruct);
+        strftime(buf, sizeof(buf), "%Y-%m-%d_%H-%M-%S", &tstruct);
+        std::string time(buf);
+        filename.append(time);
+    }
+    filename.append(".png");
+
+    // get resource layout of image to read it correctly
+    vk::ImageSubresource sub_resource{vk::ImageAspectFlagBits::eColor, 0, 0};
+    vk::SubresourceLayout sub_resource_layout;
+    vmc.logical_device.get().getImageSubresourceLayout(dst_image, &sub_resource, &sub_resource_layout);
+
+    char* data;
+    vmaMapMemory(vmc.va, tmp_vmaa, (void**)&data);
+    data += sub_resource_layout.offset;
+
+    std::vector<vk::Format> bgr_formats = {vk::Format::eB8G8R8A8Srgb, vk::Format::eB8G8R8A8Unorm, vk::Format::eB8G8R8A8Snorm};
+    bool color_swizzle = (std::find(bgr_formats.begin(), bgr_formats.end(), format) != bgr_formats.end());
+
+    std::vector<char> image_data(w * h * c);
+    for (uint32_t y = 0; y < h; ++y)
+    {
+        char* row = data;
+        for (uint32_t x = 0; x < w; ++x)
+        {
+            if (color_swizzle)
+            {
+                image_data[4 * (y * w + x)] = (*(row + 2));
+                image_data[4 * (y * w + x) + 1] = (*(row + 1));
+                image_data[4 * (y * w + x) + 2] = (*row);
+                image_data[4 * (y * w + x) + 3] = 255; //(*(row + 3));
+            }
+            else
+            {
+                image_data[4 * (y * w + x)] = (*row);
+                image_data[4 * (y * w + x) + 1] = (*(row + 1));
+                image_data[4 * (y * w + x) + 2] = (*(row + 2));
+                image_data[4 * (y * w + x) + 3] = 255; //(*(row + 3));
+            }
+            row += 4;
+        }
+        data += sub_resource_layout.rowPitch;
+    }
+
+    stbi_write_png(filename.c_str(), w, h, c, (void**)image_data.data(), w * c);
+    vmaUnmapMemory(vmc.va, tmp_vmaa);
+    vmaDestroyImage(vmc.va, VkImage(dst_image), tmp_vmaa);
 }
 
 vk::DeviceSize Image::get_byte_size() const

@@ -52,6 +52,11 @@ void WorkContext::draw_frame(AppState &app_state)
   VE_CHECK(image_idx.result, "Failed to acquire next image!");
 
   uint32_t read_only_image = (app_state.total_frames / frames_in_flight) % frames_in_flight;
+  if (app_state.save_screenshot)
+  {
+    storage.get_image_by_name("ray_marcher_output_texture").save_to_file(vcc);
+    app_state.save_screenshot = false;
+  }
   render(image_idx.value, app_state, read_only_image);
   app_state.current_frame = (app_state.current_frame + 1) % frames_in_flight;
   app_state.total_frames++;
