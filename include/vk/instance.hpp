@@ -21,6 +21,6 @@ private:
   vk::Instance instance;
   ExtensionsHandler extensions_handler;
   ExtensionsHandler validation_handler;
-  vk::DynamicLoader dl;
+  vk::detail::DynamicLoader dl;
 };
 } // namespace ve
