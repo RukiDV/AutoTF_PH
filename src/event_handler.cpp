@@ -12,6 +12,13 @@ void EventHandler::dispatch_event(SDL_Event e)
   {
     return;
   }
+  switch (e.type)
+    {
+      case SDL_MOUSEMOTION:
+          mouse_motion.x = e.motion.xrel;
+          mouse_motion.y = e.motion.yrel;
+          break;
+    }
   switch (e.button.button)
   {
     case SDL_BUTTON_LEFT:

@@ -63,8 +63,11 @@ void dispatch_pressed_keys(GPUContext& gpu_context, EventHandler& eh, AppState& 
     }
     if (eh.is_key_pressed(Key::MouseLeft))
     {
-        if (!SDL_GetRelativeMouseMode()) SDL_SetRelativeMouseMode(SDL_TRUE);
-        app_state.cam.on_mouse_move(glm::vec2(eh.mouse_motion.x * 0.05f, eh.mouse_motion.y * 0.05f));
+        if (!SDL_GetRelativeMouseMode()) 
+        {
+            SDL_SetRelativeMouseMode(SDL_TRUE);
+        }
+        app_state.cam.on_mouse_move(glm::vec2(eh.mouse_motion.x * 1.5f, eh.mouse_motion.y * 1.5f));
         eh.mouse_motion = glm::vec2(0.0f);
     }
     if (eh.is_key_released(Key::MouseLeft))
@@ -102,7 +105,6 @@ int gpu_render(const Volume& volume)
             eh.dispatch_event(e);
         }
         app_state.time_diff = rendering_timer.restart();
-        std::cout << "frametime: " << app_state.time_diff * 1000.0f << std::endl;
     }
 
     return 0;
