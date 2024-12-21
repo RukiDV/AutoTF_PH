@@ -21,7 +21,12 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   
   buffers[VOLUME_BUFFER] = storage.add_buffer("volume", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
 
-  std::vector<glm::vec4> initial_tf_data(256, glm::vec4(1.0, 0.0, 1.0, 1.0)); 
+  std::vector<glm::vec4> initial_tf_data(256);
+  for (int i = 0; i < 256; ++i) 
+  {
+      float value = i / 255.0f;
+      initial_tf_data[i] = glm::vec4(value, value, value, 1.0);
+  }
   buffers[TF_BUFFER] = storage.add_buffer("transfer_function", initial_tf_data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
 
   buffers[UNIFORM_BUFFER] = storage.add_buffer("ray_marcher_uniform_buffer", sizeof(Camera::Data), vk::BufferUsageFlagBits::eUniformBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
