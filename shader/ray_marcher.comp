@@ -79,6 +79,39 @@ float gradient(vec3 pos)
     return sqrt(grad_x * grad_x + grad_y * grad_y + grad_z * grad_z);
 }
 
+float trilinear_interpolate(uvec3 volume_pos, vec3 weights) 
+{
+    vec3 vol_size = vec3(volume_width, volume_height, volume_depth);
+
+    uint index000 = volume_pos.z * volume_height * volume_width + volume_pos.y * volume_width + volume_pos.x;
+    uint index100 = index000 + 1;
+    uint index010 = index000 + volume_width;
+    uint index110 = index010 + 1;
+    uint index001 = index000 + volume_width * volume_height;
+    uint index101 = index001 + 1;
+    uint index011 = index001 + volume_width;
+    uint index111 = index011 + 1;
+
+    float c000 = float(uint(data[index000])) / 255.0;
+    float c100 = float(uint(data[index100])) / 255.0;
+    float c010 = float(uint(data[index010])) / 255.0;
+    float c110 = float(uint(data[index110])) / 255.0;
+    float c001 = float(uint(data[index001])) / 255.0;
+    float c101 = float(uint(data[index101])) / 255.0;
+    float c011 = float(uint(data[index011])) / 255.0;
+    float c111 = float(uint(data[index111])) / 255.0;
+
+    float c00 = mix(c000, c100, weights.x);
+    float c10 = mix(c010, c110, weights.x);
+    float c01 = mix(c001, c101, weights.x);
+    float c11 = mix(c011, c111, weights.x);
+
+    float c0 = mix(c00, c10, weights.y);
+    float c1 = mix(c01, c11, weights.y);
+
+    return mix(c0, c1, weights.z);
+}
+
 vec3 ray_march(Ray ray)
 {
     float t;
@@ -91,6 +124,9 @@ vec3 ray_march(Ray ray)
     for (uint i = 0; hit && i < 200; i++)
     {
         vec3 pos = ray.origin + (t + 0.0001) * ray.dir;
+
+#if 1
+        // load value from volume
         bool in_bounds = all(greaterThanEqual(pos, vec3(-1.0))) && all(lessThanEqual(pos, vec3(1.0)));
 
         // scale position to volume coordinates
@@ -99,23 +135,31 @@ vec3 ray_march(Ray ray)
         // left the volume -> done
         if (!in_bounds) break;
 
-        uint index = uint(volume_pos.z) * volume_height * volume_width + uint(volume_pos.y) * volume_width + uint(volume_pos.x);
-       
-        // calculate density for donut
+        vec3 texCoord = (pos + 1.0) * 0.5;
+        vec3 volume_pos_f = texCoord * vec3(volume_width, volume_height, volume_depth);
+        uvec3 volume_pos_min = uvec3(floor(volume_pos_f));
+        vec3 weights = fract(volume_pos_f);
+
+        float density_value = trilinear_interpolate(volume_pos_min, weights);
+
+        // without interpolation
+        //uint index = uint(volume_pos.z) * volume_height * volume_width + uint(volume_pos.y) * volume_width + uint(volume_pos.x);
+        //float density_value = float(uint(data[index])) / 255.0; //(length(pos) > 1.0 || length(pos.xy) < 0.5) ? -1.0 : 0.5;
+#else
+        // calculate value from donut function
         float distance_from_center = length(pos.xy);
         float outer_radius = 1.0;
         float inner_radius = 0.6;
+        float density_value = (distance_from_center > inner_radius && distance_from_center < outer_radius) ? 1.0 : -1.0;
+#endif
 
-        float density = (distance_from_center > inner_radius && distance_from_center < outer_radius) ? 1.0 : -1.0;
-        //float density = (length(pos) > 1.0 || length(pos.xy) < 0.5) ? -1.0 : 0.5;//float(uint(data[index])) / 255.0;
-
-        if (density > 0.0)
+        if (density_value > 0.5)
         {
             // calculate gradient
             float grad_value = gradient(pos);
             vec3 color = vec3(grad_value);
 
-            uint tf_index = uint(density * (transfer_function.length()));
+            uint tf_index = uint(density_value * (transfer_function.length()));
             tf_index = clamp(tf_index, 0, transfer_function.length() - 1);
             vec4 tf_value = transfer_function[tf_index];
 
@@ -128,9 +172,8 @@ vec3 ray_march(Ray ray)
             accumulated_color += pre_multiplied_color * (1.0 - accumulated_alpha);
             accumulated_alpha += alpha * (1.0 - accumulated_alpha);
 
-            if (accumulated_alpha >= 1.0) break;
+            if (accumulated_alpha >= 0.95) break;
         }
-
         t += step_size;
     }
 
