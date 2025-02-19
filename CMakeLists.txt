@@ -6,6 +6,7 @@ set(SDL2_DIR "${PROJECT_SOURCE_DIR}/dependencies/SDL2")
 
 set(SOURCE_FILES
   src/gpu_renderer.cpp
+  src/persistence.cpp
   src/volume.cpp
   src/util/random_generator.cpp
   src/vk/command_pool.cpp
@@ -38,6 +39,7 @@ set(SOURCE_FILES
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_tables.cpp")
 
 find_package(Vulkan REQUIRED)
+find_package(ZLIB REQUIRED)
 
 add_executable(AutoTF_PH src/main.cpp ${SOURCE_FILES})
 target_include_directories(AutoTF_PH PRIVATE "${PROJECT_SOURCE_DIR}/include"
@@ -45,6 +47,11 @@ target_include_directories(AutoTF_PH PRIVATE "${PROJECT_SOURCE_DIR}/include"
   "${Vulkan_INCLUDE_DIRS}"
   "${SDL2_DIR}/include/"
   "${PROJECT_SOURCE_DIR}/dependencies/VulkanMemoryAllocator/include/"
-  "${PROJECT_SOURCE_DIR}/dependencies/imgui/")
+  "${PROJECT_SOURCE_DIR}/dependencies/imgui/"
+  "${PROJECT_SOURCE_DIR}/dependencies/phat/include"
+  "${ZLIB_INCLUDE_DIRS}")
 add_subdirectory("${SDL2_DIR}")
-target_link_libraries(AutoTF_PH SDL2 ${Vulkan_LIBRARIES})
+add_subdirectory("${PROJECT_SOURCE_DIR}/dependencies/phat")
+
+target_link_libraries(AutoTF_PH SDL2 ${ZLIB_LIBRARIES} ${Vulkan_LIBRARIES} phat_library)
+

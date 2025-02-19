@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "glm/vec3.hpp"
+#include "persistence.hpp"
 
 struct Volume
 {
@@ -10,3 +11,4 @@ struct Volume
 };
 
 [[nodiscard]] int load_volume_from_file(const std::string& path, Volume& volume);
+bool create_boundary_matrix(const Volume& volume, persistence::BoundaryMatrix& boundary_matrix);

@@ -5,8 +5,10 @@
 #include "vk/descriptor_set_handler.hpp"
 #include "vk/pipeline.hpp"
 #include "vk/storage.hpp"
-#include "glm/vec2.hpp"
-#include "glm/vec3.hpp"
+#include "persistence.hpp"
+
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 
 namespace ve
 {
@@ -28,6 +30,7 @@ private:
     VOLUME_BUFFER = 2,
     TF_BUFFER = 3,
     UNIFORM_BUFFER = 4,
+    PERSISTENCE_BUFFER = 5,
     BUFFER_COUNT
   };
 

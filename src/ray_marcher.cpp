@@ -21,6 +21,8 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   
   buffers[VOLUME_BUFFER] = storage.add_buffer("volume", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
 
+  //std::vector<glm::vec4> initial_tf_data(128, glm::vec4(1.0, 1.0, 1.0, 0.0));
+  //initial_tf_data.resize(256, glm::vec4(1.0, 1.0, 1.0, 1.0));
   std::vector<glm::vec4> initial_tf_data(256);
   for (int i = 0; i < 256; ++i) 
   {
@@ -37,6 +39,9 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   std::vector<unsigned char> initial_image(app_state.get_render_extent().width * app_state.get_render_extent().height * 4, 0);
 
   images[RAY_MARCHER_IMAGE] = storage.add_image("ray_marcher_output_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, std::vector<uint32_t>{vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute}, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
+  
+  // TODO set buffer size correct
+  buffers[PERSISTENCE_BUFFER] = storage.add_buffer("persistence_buffer", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
 }
 
 void RayMarcher::construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution)
@@ -97,6 +102,7 @@ void RayMarcher::create_descriptor_set()
   dsh.add_binding(3, vk::DescriptorType::eStorageImage, vk::ShaderStageFlagBits::eCompute);
   dsh.add_binding(4, vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eCompute);
   dsh.add_binding(5, vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eCompute);
+  dsh.add_binding(6, vk::DescriptorType::eStorageBuffer, vk::ShaderStageFlagBits::eCompute);
   
   for (uint32_t i = 0; i < frames_in_flight; ++i)
   {
@@ -108,6 +114,7 @@ void RayMarcher::create_descriptor_set()
     dsh.add_descriptor(i, 3, storage.get_image_by_name("ray_marcher_output_texture"));
     dsh.add_descriptor(i, 4, storage.get_buffer_by_name("ray_marcher_output_" + std::to_string(i)));
     dsh.add_descriptor(i, 5, storage.get_buffer_by_name("ray_marcher_output_" + std::to_string(1 - i)));
+    dsh.add_descriptor(i, 6, storage.get_buffer_by_name("persistence_buffer"));
   }
   dsh.construct();
 }
