@@ -1,144 +1,211 @@
 #include "persistence.hpp"
-
+#include <iostream>
 #include <algorithm>
-#include <iostream> 
-#include <cstdint>
 
-namespace persistence 
+#include "volume.hpp"
+
+BoundaryMatrix::BoundaryMatrix(uint32_t num_cols) : num_cols_(num_cols), matrix_(num_cols, std::vector<uint32_t>()), dims_(num_cols, 0) {}
+
+// set the dimension of a simplex
+void BoundaryMatrix::set_dim(uint32_t col_idx, uint32_t dim) 
 {
-    BoundaryMatrix::BoundaryMatrix(size_t rows, size_t cols) : rows(rows), cols(cols), matrix(cols, column()) {}
-
-    // returns index of the lowest one in a column
-    index BoundaryMatrix::get_max_index(index col) const 
+    if (col_idx < num_cols_) 
     {
-        if (matrix[col].empty()) 
-        {
-            //std::cout << "Column " << col << " is empty, returning -1.\n";
-            return -1;
-        }
-        //std::cout << "Column " << col << " has " << matrix[col].size() << " entries. Max index: " << matrix[col].back() << "\n";
-        return matrix[col].back();
+        dims_[col_idx] = dim;
     }
+}
 
-    // adds column source_col to column target_col (mod 2)
-    void BoundaryMatrix::add_to(index source_col, index target_col) 
+// set a column in the matrix
+void BoundaryMatrix::set_col(uint32_t col_idx, const std::vector<uint32_t>& entries) 
+{
+    if (col_idx < num_cols_) 
     {
-        const column& source = matrix[source_col];
-        column& target = matrix[target_col];
-
-        if (source.empty()) 
-        {
-            std::cout << "Source column " << source_col << " is empty, nothing to add.\n";
-            return;
-        }
-
-        /*std::cout << "Before sorting - Source column " << source_col << ": ";
-        for (auto val : source) std::cout << val << " ";
-        std::cout << "\n";
-
-        std::cout << "Before sorting - Target column " << target_col << ": ";
-        for (auto val : target) std::cout << val << " ";
-        std::cout << "\n";*/
-
-        // Ensure the columns are sorted
-        column sorted_source = source;
-        column sorted_target = target;
-        std::sort(sorted_source.begin(), sorted_source.end());
-        std::sort(sorted_target.begin(), sorted_target.end());
-
-        /*std::cout << "After sorting - Source column " << source_col << ": ";
-        for (auto val : sorted_source) std::cout << val << " ";
-        std::cout << "\n";
-
-        std::cout << "After sorting - Target column " << target_col << ": ";
-        for (auto val : sorted_target) std::cout << val << " ";
-        std::cout << "\n";*/
-
-        column temp_col;
-        std::set_symmetric_difference(sorted_target.begin(), sorted_target.end(), sorted_source.begin(), sorted_source.end(), std::back_inserter(temp_col));
-
-        /*std::cout << "Temporary column: ";
-        for (auto val : temp_col) std::cout << val << " ";
-        std::cout << "\n";*/
-
-        // Assign the result to the target column
-        target.swap(temp_col);
-        finalize(target_col);
-
-        // Debug: Print the target column after finalization
-        /*std::cout << "After finalization - Target column " << target_col << ": ";
-        for (auto val : target) std::cout << val << " ";
-        std::cout << "\n";*/
+        matrix_[col_idx] = entries;
     }
- 
-    // finalize column, sort and remove duplicates
-    void BoundaryMatrix::finalize(index col) 
+}
+
+// return the number of columns
+uint32_t BoundaryMatrix::get_num_cols() const 
+{
+    return num_cols_;
+}
+
+// return the entries of a column
+std::vector<uint32_t> BoundaryMatrix::get_col(uint32_t col_idx) const 
+{
+    if (col_idx < num_cols_) 
     {
-        if (matrix[col].empty()) return;
-
-        std::sort(matrix[col].begin(), matrix[col].end());
-        matrix[col].erase(std::unique(matrix[col].begin(), matrix[col].end()), matrix[col].end());
+        return matrix_[col_idx];
     }
+    return {};
+}
 
-    void BoundaryMatrix::set_col(index idx, const column& col) 
+// perform the reduction
+std::vector<PersistencePair> BoundaryMatrix::reduce() 
+{
+    std::vector<PersistencePair> pairs;
+    std::vector<int> lowest_one_lookup(num_cols_, -1);
+
+    for (uint32_t cur_col = 0; cur_col < num_cols_; ++cur_col) 
     {
-        matrix[idx] = col;
-    }
+        if (!matrix_[cur_col].empty()) 
+        {
+            uint32_t lowest_one = *std::max_element(matrix_[cur_col].begin(), matrix_[cur_col].end());
 
-    const column& BoundaryMatrix::get_col(index idx) const 
+            while (lowest_one != 0 && lowest_one_lookup[lowest_one] != -1) 
+            {
+                add_to(lowest_one_lookup[lowest_one], cur_col);
+                if (!matrix_[cur_col].empty()) 
+                {
+                    lowest_one = *std::max_element(matrix_[cur_col].begin(), matrix_[cur_col].end());
+                } else 
+                {
+                    lowest_one = 0;
+                }
+            }
+
+            if (lowest_one != 0) 
+            {
+                lowest_one_lookup[lowest_one] = cur_col;
+                pairs.emplace_back(lowest_one, cur_col);
+            }
+        }
+    }
+    return pairs;
+}
+
+// add entries from one column to another
+void BoundaryMatrix::add_to(uint32_t source_col, uint32_t target_col) 
+{
+    for (uint32_t entry : matrix_[source_col]) 
     {
-        return matrix[idx];
+        auto it = std::find(matrix_[target_col].begin(), matrix_[target_col].end(), entry);
+        if (it != matrix_[target_col].end()) 
+        {
+            matrix_[target_col].erase(it);
+        } else 
+        {
+            matrix_[target_col].push_back(entry);
+        }
     }
+}
 
-    void BoundaryMatrix::clear(index idx) 
+// create the boundary matrix from the volume
+std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix_from_volume(const Volume& volume) 
+{
+    const uint32_t dim_x = volume.resolution.x;
+    const uint32_t dim_y = volume.resolution.y;
+    const uint32_t dim_z = volume.resolution.z;
+
+    uint32_t num_points = dim_x * dim_y * dim_z;
+    uint32_t num_edges = 0;
+    uint32_t num_faces = 0;
+    uint32_t num_voxels = 0;
+
+    std::vector<std::vector<uint32_t>> edges;
+    std::vector<std::vector<uint32_t>> faces;
+    std::vector<std::vector<uint32_t>> voxels;
+
+    // add edges
+    for (uint32_t z = 0; z < dim_z; ++z) 
     {
-        matrix[idx].clear();
+        for (uint32_t y = 0; y < dim_y; ++y) 
+        {
+            for (uint32_t x = 0; x < dim_x; ++x) 
+            {
+                uint32_t voxel_idx = z * dim_y * dim_x + y * dim_x + x;
+
+                if (x < dim_x - 1) 
+                {
+                    edges.push_back({voxel_idx, voxel_idx + 1});
+                    num_edges++;
+                }
+                if (y < dim_y - 1) 
+                {
+                    edges.push_back({voxel_idx, voxel_idx + dim_x});
+                    num_edges++;
+                }
+                if (z < dim_z - 1) 
+                {
+                    edges.push_back({voxel_idx, voxel_idx + dim_y * dim_x});
+                    num_edges++;
+                }
+            }
+        }
     }
 
-    // standard reduction algorithm with absorption and connected components tracking
-    void ExtendedReduction::operator()(BoundaryMatrix& boundary_matrix, std::unordered_map<index, index>& absorptions, std::unordered_map<index, std::unordered_set<index>>& connected_components) {
-        const index nr_columns = boundary_matrix.get_num_cols();
-        std::vector<index> lowest_one_lookup(nr_columns, -1);
-
-        // initialize connected components, each column starts as its own component
-        for (index i = 0; i < nr_columns; ++i) 
+    // add faces
+    for (uint32_t z = 0; z < dim_z - 1; ++z) 
+    {
+        for (uint32_t y = 0; y < dim_y - 1; ++y) 
         {
-            connected_components[i].insert(i); // each column contains only itself
+            for (uint32_t x = 0; x < dim_x - 1; ++x) 
+            {
+                uint32_t voxel_idx = z * dim_y * dim_x + y * dim_x + x;
+
+                // face in the x-y plane
+                faces.push_back({voxel_idx, voxel_idx + 1, voxel_idx + dim_x, voxel_idx + dim_x + 1});
+                num_faces++;
+
+                // face in the y-z plane
+                faces.push_back({voxel_idx, voxel_idx + dim_x, voxel_idx + dim_y * dim_x, voxel_idx + dim_y * dim_x + dim_x});
+                num_faces++;
+
+                // face in the x-z plane
+                faces.push_back({voxel_idx, voxel_idx + 1, voxel_idx + dim_y * dim_x, voxel_idx + dim_y * dim_x + 1});
+                num_faces++;
+            }
         }
-
-        for (index cur_col = 0; cur_col < nr_columns; ++cur_col) 
-        {
-        index lowest_one = boundary_matrix.get_max_index(cur_col);
-
-        if (lowest_one != -1) 
-        {
-            lowest_one_lookup[lowest_one] = cur_col;
-            std::cout << "Column " << cur_col << " is now the lowest_one for index " << lowest_one << "\n";
-        }
-
-        while (lowest_one != -1 && lowest_one_lookup[lowest_one] != -1) 
-        {
-            index absorbing_col = lowest_one_lookup[lowest_one];
-
-            // record absorption (current column is absorbed by absorbing_col)
-            absorptions[cur_col] = absorbing_col;
-
-            // merge connected components
-            connected_components[absorbing_col].insert(connected_components[cur_col].begin(), connected_components[cur_col].end());
-            connected_components[cur_col].clear(); // clear cur_col as it is absorbed
-
-            // reduce current column
-            boundary_matrix.add_to(absorbing_col, cur_col);
-            lowest_one = boundary_matrix.get_max_index(cur_col);
-        }
-
-        if (lowest_one != -1) 
-        {
-            lowest_one_lookup[lowest_one] = cur_col;
-        }
-
-        boundary_matrix.finalize(cur_col);
     }
-        std::cout << "Number of persistence pairs: " << absorptions.size() << std::endl;
+
+    // add voxels
+    for (uint32_t z = 0; z < dim_z - 1; ++z) 
+    {
+        for (uint32_t y = 0; y < dim_y - 1; ++y) 
+        {
+            for (uint32_t x = 0; x < dim_x - 1; ++x) 
+            {
+                uint32_t voxel_idx = z * dim_y * dim_x + y * dim_x + x;
+
+                voxels.push_back({voxel_idx, voxel_idx + 1, voxel_idx + dim_x, voxel_idx + dim_x + 1, voxel_idx + dim_y * dim_x, voxel_idx + dim_y * dim_x + 1, voxel_idx + dim_y * dim_x + dim_x, voxel_idx + dim_y * dim_x + dim_x + 1});
+                num_voxels++;
+            }
+        }
     }
-} // namespace persistence
+
+    BoundaryMatrix boundary_matrix(num_points + num_edges + num_faces + num_voxels);
+
+    for (uint32_t i = 0; i < num_points; ++i) 
+    {
+        boundary_matrix.set_dim(i, 0);
+    }
+    for (uint32_t i = 0; i < num_edges; ++i) 
+    {
+        boundary_matrix.set_dim(num_points + i, 1);
+    }
+    for (uint32_t i = 0; i < num_faces; ++i) 
+    {
+        boundary_matrix.set_dim(num_points + num_edges + i, 2);
+    }
+    for (uint32_t i = 0; i < num_voxels; ++i) 
+    {
+        boundary_matrix.set_dim(num_points + num_edges + num_faces + i, 3);
+    }
+
+    for (uint32_t i = 0; i < num_edges; ++i) 
+    {
+        boundary_matrix.set_col(num_points + i, edges[i]);
+    }
+    for (uint32_t i = 0; i < num_faces; ++i) 
+    {
+        boundary_matrix.set_col(num_points + num_edges + i, faces[i]);
+    }
+    for (uint32_t i = 0; i < num_voxels; ++i) 
+    {
+        boundary_matrix.set_col(num_points + num_edges + num_faces + i, voxels[i]);
+    }
+
+    std::vector<int> filtration_values(volume.data.begin(), volume.data.end());
+    return {boundary_matrix, filtration_values};
+}
+

@@ -97,8 +97,7 @@
     file.close();
 
     // Debug: print first few values of the volume data
-    std::cout << "Volume data loaded successfully. First few values:" << std::endl;
-    std::cout << "First 50 bytes raw from memory:\n";
+    std::cout << "Volume data loaded successfully." << std::endl;
     float avg = 0.0f;
     float min = std::numeric_limits<float>::max();
     float max = std::numeric_limits<float>::lowest();
@@ -126,76 +125,16 @@
     return 0;
 }
 
-
-// calculate the index of a voxel in the 3D matrix
-uint32_t get_voxel_index(uint32_t x, uint32_t y, uint32_t z, uint32_t dim_x, uint32_t dim_y) 
+// function to create a small 2x2x2 volume
+Volume create_small_volume() 
 {
-    return z * dim_x * dim_y + y * dim_x + x;
-}
-
-bool create_boundary_matrix(const Volume& volume, persistence::BoundaryMatrix& boundary_matrix) 
-{
-    const size_t dim_x = volume.resolution.x;
-    const size_t dim_y = volume.resolution.y;
-    const size_t dim_z = volume.resolution.z;
-
-    auto get_voxel_index = [dim_x, dim_y](size_t x, size_t y, size_t z) 
-    {
-        return z * dim_x * dim_y + y * dim_x + x;
-    };
-
-    size_t num_entries = 0;
-
-    for (size_t z = 0; z < dim_z; ++z) 
-    {
-        for (size_t y = 0; y < dim_y; ++y) 
-        {
-            for (size_t x = 0; x < dim_x; ++x) 
-            {
-                size_t voxel_index = get_voxel_index(x, y, z);
-                uint8_t voxel_value = volume.data[voxel_index];
-
-                if (voxel_value == 0) continue;  // ignore background
-
-                persistence::column column_entries;
-
-                // add edge for neighboring voxel
-                if (x > 0) 
-                {
-                    size_t neighbor_index = get_voxel_index(x - 1, y, z);
-                    if (volume.data[neighbor_index] <= voxel_value) 
-                    {
-                        column_entries.push_back(neighbor_index);
-                    }
-                }
-                if (y > 0) 
-                {
-                    size_t neighbor_index = get_voxel_index(x, y - 1, z);
-                    if (volume.data[neighbor_index] <= voxel_value) 
-                    {
-                        column_entries.push_back(neighbor_index);
-                    }
-                }
-                if (z > 0) 
-                {
-                    size_t neighbor_index = get_voxel_index(x, y, z - 1);
-                    if (volume.data[neighbor_index] <= voxel_value) 
-                    {
-                        column_entries.push_back(neighbor_index);
-                    }
-                }
-                // save column in boundary matrix
-                if (!column_entries.empty()) {
-                    boundary_matrix.set_col(voxel_index, column_entries);
-                    num_entries += column_entries.size();
-                    //std::cout << "Column " << voxel_index << " has " << column_entries.size() << " entries.\n";
-                }
-            }
-        }
-    }
-    std::cout << "Boundary Matrix constructed with " << num_entries << " nonzero entries.\n";
-    
-    return true;
+    Volume volume;
+    volume.resolution = {2, 2, 2};
+    volume.data = {0, 100,  // layer 1
+                   200, 255, // layer 1
+                   50, 75,   // layer 2
+                   150, 200}; // layer 2
+    return volume;
 }
 
 

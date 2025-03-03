@@ -1,38 +1,40 @@
 #pragma once
 
 #include <vector>
-#include <unordered_map>
-#include <unordered_set>
+#include <cstdint>
+#include <utility>
 
-namespace persistence 
+struct Volume;
+
+struct PersistencePair 
 {
-    using index = int; 
-    using column = std::vector<index>;
+    uint32_t birth;
+    uint32_t death;
 
-    class BoundaryMatrix 
-    {
-    public:
-        BoundaryMatrix(size_t rows, size_t cols);
+    PersistencePair(uint32_t b, uint32_t d) : birth(b), death(d) {}
 
-        index get_num_cols() const { return cols; }
-        index get_max_index(index col) const;
-        void add_to(index source_col, index target_col);
-        void finalize(index col);
+    // method to calculate persistence
+    uint32_t persistence() const { return death - birth; }
+};
 
-        // additional methods for phat compatibility
-        void set_col(index idx, const column& col);
-        const column& get_col(index idx) const;
-        void clear(index idx);
+class BoundaryMatrix 
+{
+public:
+    BoundaryMatrix(uint32_t num_cols);
 
-    private:
-        std::vector<column> matrix;
-        size_t rows, cols;
-    };
+    void set_dim(uint32_t col_idx, uint32_t dim);
+    void set_col(uint32_t col_idx, const std::vector<uint32_t>& entries);
+    uint32_t get_num_cols() const;
+    std::vector<uint32_t> get_col(uint32_t col_idx) const;
 
-    class ExtendedReduction 
-    {
-    public:
-        void operator()(BoundaryMatrix& boundary_matrix, std::unordered_map<index, index>& absorptions, std::unordered_map<index, std::unordered_set<index>>& connected_components);
-    }; 
+    std::vector<PersistencePair> reduce();
 
-} // namespace persistence
+private:
+    uint32_t num_cols_;
+    std::vector<std::vector<uint32_t>> matrix_;
+    std::vector<uint32_t> dims_;
+
+    void add_to(uint32_t source_col, uint32_t target_col);
+};
+
+std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix_from_volume(const Volume& volume);
