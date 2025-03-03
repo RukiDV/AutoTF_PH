@@ -3,6 +3,7 @@
 #include <vector>
 #include <utility>
 #include <stdint.h>
+#include <string>
 
 struct PersistencePair 
 {
@@ -31,6 +32,14 @@ public:
 
     // performs reduction and computes persistence pairs
     std::vector<PersistencePair> reduce();
+
+    // function to convert the boundary matrix into a 2D array
+    std::vector<std::vector<uint32_t>> matrix_to_2d(const BoundaryMatrix& matrix, uint32_t num_rows); 
+   
+    // function to print a matrix
+    void print_matrix(const std::vector<std::vector<uint32_t>>& matrix, const std::string& name);
+
+    void compute_persistence();
 
 private:
     uint32_t num_cols;

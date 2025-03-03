@@ -1,87 +1,71 @@
-#include "simple_per_homo_example.hpp"
+#include "volume.hpp"
+#include "gpu_renderer.hpp"
+#include "persistence.hpp"
+#include "volume_visualization.hpp"
+
 #include <iostream>
+#include <algorithm>
+#include <fstream>
 
-// function to convert the boundary matrix into a 2D array
-std::vector<std::vector<uint32_t>> matrix_to_2d(const BoundaryMatrix& matrix, uint32_t num_rows) 
+int main(int argc, char* argv[])
 {
-    uint32_t num_cols = matrix.get_num_cols();
-    std::vector<std::vector<uint32_t>> result(num_rows, std::vector<uint32_t>(num_cols, 0));
-    for (uint32_t col_idx = 0; col_idx < num_cols; ++col_idx) 
+    // get volume from the file provided as cli argument
+    Volume volume;
+
+    if (argc > 1) 
     {
-        std::vector<uint32_t> temp_col = matrix.get_col(col_idx);
-        for (uint32_t row_idx : temp_col) 
-        {
-            if (row_idx < num_rows) 
-            {
-                result[row_idx][col_idx] = 1;
-            }
-        }
-    }
-    return result;
-}
+        std::string path = argv[1];
+        std::cout << "Loading volume from file: " << path << std::endl;
 
-// function to print a matrix
-void print_matrix(const std::vector<std::vector<uint32_t>>& matrix, const std::string& name) 
-{
-    std::cout << name << ":" << std::endl;
-    for (const auto& row : matrix) 
+        if (load_volume_from_file(path, volume) != 0) 
+        {
+            std::cerr << "Failed to parse file!" << std::endl;
+        }
+    } 
+    else 
     {
-        for (uint32_t val : row) 
-        {
-            std::cout << val << " ";
-        }
-        std::cout << std::endl;
+        std::cout << "No file provided. Using default 2x2x2 volume." << std::endl;
+        volume = create_small_volume();
     }
-}
 
-int main() 
-{
-    BoundaryMatrix boundary_matrix(12); // 12 simplices
+    // Erstelle die Boundary-Matrix und extrahiere die Filtrationswerte
+    auto [boundary_matrix, filtration_values] = create_boundary_matrix_from_volume(volume);
 
-    // Set the dimensions of the simplices
-    boundary_matrix.set_dim(0, 0); // point
-    boundary_matrix.set_dim(1, 0);
-    boundary_matrix.set_dim(2, 1); // edge
-    boundary_matrix.set_dim(3, 0); 
-    boundary_matrix.set_dim(4, 1);
-    boundary_matrix.set_dim(5, 1);
-    boundary_matrix.set_dim(6, 0);
-    boundary_matrix.set_dim(7, 0);
-    boundary_matrix.set_dim(8, 1);
-    boundary_matrix.set_dim(9, 1);
-    boundary_matrix.set_dim(10, 1);
-    boundary_matrix.set_dim(11, 2); // triangle
+    // Sortiere die Filtrationswerte
+    std::vector<uint32_t> indices(filtration_values.size());
+    for (uint32_t i = 0; i < indices.size(); ++i) {
+        indices[i] = i;
+    }
+    std::sort(indices.begin(), indices.end(), [&filtration_values](uint32_t a, uint32_t b) {
+        return filtration_values[a] < filtration_values[b];
+    });
 
-    // fill the columns of the boundary matrix
-    boundary_matrix.set_col(2, {0, 1}); // edge (0, 1)
-    boundary_matrix.set_col(4, {0, 3}); // edge (0, 3)
-    boundary_matrix.set_col(5, {1, 3}); // edge (1, 3)
-    boundary_matrix.set_col(8, {6, 7}); // edge (6, 7)
-    boundary_matrix.set_col(9, {3, 7}); // edge (3, 7)
-    boundary_matrix.set_col(10, {1, 6}); // edge (1, 6)
-    boundary_matrix.set_col(11, {2, 4, 5}); // triangle (2, 4, 5)
-
-    // Determine the number of rows for the matrix representation
-    uint32_t num_rows = 12;
-
-    // convert the boundary matrix into a 2D array
-    std::vector<std::vector<uint32_t>> original_matrix = matrix_to_2d(boundary_matrix, num_rows);
-
-    print_matrix(original_matrix, "Original Boundary-Matrix");
-
-    // perform reduction and compute persistence pairs
+    // Berechne die Persistenzpaare
     std::vector<PersistencePair> pairs = boundary_matrix.reduce();
 
-    // convert the reduced boundary matrix into a 2D array
-    std::vector<std::vector<uint32_t>> reduced_matrix = matrix_to_2d(boundary_matrix, num_rows);
-
-    print_matrix(reduced_matrix, "Reduced Boundary-Matrix");
-
-    std::cout << "\nPersistence Pairs:" << std::endl;
-    for (const auto& pair : pairs) 
-    {
+    // Drucke die Persistenzpaare
+    std::cout << "Persistence Pairs:" << std::endl;
+    for (const auto& pair : pairs) {
         std::cout << "(" << pair.birth << ", " << pair.death << ")" << std::endl;
     }
+
+    std::ofstream outfile("persistence_pairs.txt");
+    if (!outfile.is_open()) 
+    {
+        std::cerr << "Failed to open persistence_pairs.txt for writing!" << std::endl;
+        return 1;
+    }
+
+    for (const auto& [birth, death] : pairs) {
+        outfile << birth << " " << death << "\n";
+    }
+    outfile.close();
+    std::cout << "Persistence pairs saved to persistence_pairs.txt" << std::endl; 
+
+    // Visualisiere das Volumen
+    //visualize_volume(volume);
+
+    if (gpu_render(volume) != 0) return 1;
 
     return 0;
 }
