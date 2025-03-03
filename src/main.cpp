@@ -1,8 +1,6 @@
 #include "volume.hpp"
 #include "gpu_renderer.hpp"
 #include "persistence.hpp"
-#include "volume_visualization.hpp"
-
 #include <iostream>
 #include <algorithm>
 #include <fstream>

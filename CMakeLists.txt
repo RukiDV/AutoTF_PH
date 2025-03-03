@@ -31,8 +31,6 @@ set(SOURCE_FILES
   src/window.cpp
   src/work_context.cpp
   src/camera.cpp
-  src/simple_per_homo_example.cpp
-  src/isosurface.cpp
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl2.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_vulkan.cpp"
