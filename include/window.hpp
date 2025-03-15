@@ -1,7 +1,7 @@
 #pragma once
 
 #include "vk/common.hpp"
-#include "SDL_video.h"
+#include "SDL3/SDL_video.h"
 
 #include <vector>
 

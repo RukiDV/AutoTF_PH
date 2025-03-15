@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL_events.h>
 #include <vector>
 #include <glm/vec2.hpp>
 

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.19)
 project(AutoTF_PH)
 set(CMAKE_CXX_STANDARD 20)
 
-set(SDL2_DIR "${PROJECT_SOURCE_DIR}/dependencies/SDL2")
+set(SDL3_DIR "${PROJECT_SOURCE_DIR}/dependencies/SDL3")
 
 set(SOURCE_FILES
   src/gpu_renderer.cpp
@@ -32,7 +32,7 @@ set(SOURCE_FILES
   src/work_context.cpp
   src/camera.cpp
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui.cpp"
-  "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl2.cpp"
+  "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl3.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_vulkan.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_draw.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_widgets.cpp"
@@ -45,13 +45,10 @@ add_executable(AutoTF_PH src/main.cpp ${SOURCE_FILES})
 target_include_directories(AutoTF_PH PRIVATE "${PROJECT_SOURCE_DIR}/include"
   "${PROJECT_SOURCE_DIR}/dependencies/"
   "${Vulkan_INCLUDE_DIRS}"
-  "${SDL2_DIR}/include/"
+  "${SDL3_DIR}/include/"
   "${PROJECT_SOURCE_DIR}/dependencies/VulkanMemoryAllocator/include/"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/"
-  "${PROJECT_SOURCE_DIR}/dependencies/phat/include"
   "${ZLIB_INCLUDE_DIRS}")
-add_subdirectory("${SDL2_DIR}")
-add_subdirectory("${PROJECT_SOURCE_DIR}/dependencies/phat")
+add_subdirectory("${SDL3_DIR}")
 
-target_link_libraries(AutoTF_PH SDL2 ${ZLIB_LIBRARIES} ${Vulkan_LIBRARIES} phat_library)
-
+target_link_libraries(AutoTF_PH PRIVATE SDL3 ${ZLIB_LIBRARIES} ${Vulkan_LIBRARIES})

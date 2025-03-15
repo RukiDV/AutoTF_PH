@@ -1,7 +1,7 @@
 #include "vk/swapchain.hpp"
 
-#include "SDL_events.h"
-#include "SDL_vulkan.h"
+#include "SDL3/SDL_events.h"
+#include "SDL3/SDL_vulkan.h"
 #include "vk/ve_log.hpp"
 
 namespace ve
@@ -168,7 +168,7 @@ vk::Extent2D Swapchain::choose_extent()
     SDL_Event e;
     do
     {
-      SDL_Vulkan_GetDrawableSize(vmc.window->get(), &width, &height);
+      SDL_GetWindowSizeInPixels(vmc.window->get(), &width, &height);
       SDL_WaitEvent(&e);
     } while (width == 0 || height == 0);
     vk::Extent2D extent(width, height);

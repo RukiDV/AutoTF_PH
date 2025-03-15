@@ -1,20 +1,20 @@
 #include "event_handler.hpp"
 
-#include "backends/imgui_impl_sdl2.h"
+#include "backends/imgui_impl_sdl3.h"
 
 EventHandler::EventHandler() : pressed_keys(get_idx(Key::Size), false), released_keys(get_idx(Key::Size), false)
 {}
 
 void EventHandler::dispatch_event(SDL_Event e)
 {
-  ImGui_ImplSDL2_ProcessEvent(&e);
+  ImGui_ImplSDL3_ProcessEvent(&e);
   if (ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard)
   {
     return;
   }
   switch (e.type)
     {
-      case SDL_MOUSEMOTION:
+      case SDL_EVENT_MOUSE_MOTION:
           mouse_motion.x = e.motion.xrel;
           mouse_motion.y = e.motion.yrel;
           break;
@@ -31,84 +31,84 @@ void EventHandler::dispatch_event(SDL_Event e)
       apply_key_event(Key::MouseRight, e.type);
       break;
   }
-  switch (e.key.keysym.sym)
+  switch (e.key.key)
   {
-    case SDLK_a:
+    case SDLK_A:
       apply_key_event(Key::A, e.type);
       break;
-    case SDLK_b:
+    case SDLK_B:
       apply_key_event(Key::B, e.type);
       break;
-    case SDLK_c:
+    case SDLK_C:
       apply_key_event(Key::C, e.type);
       break;
-    case SDLK_d:
+    case SDLK_D:
       apply_key_event(Key::D, e.type);
       break;
-    case SDLK_e:
+    case SDLK_E:
       apply_key_event(Key::E, e.type);
       break;
-    case SDLK_f:
+    case SDLK_F:
       apply_key_event(Key::F, e.type);
       break;
-    case SDLK_g:
+    case SDLK_G:
       apply_key_event(Key::G, e.type);
       break;
-    case SDLK_h:
+    case SDLK_H:
       apply_key_event(Key::H, e.type);
       break;
-    case SDLK_i:
+    case SDLK_I:
       apply_key_event(Key::I, e.type);
       break;
-    case SDLK_j:
+    case SDLK_J:
       apply_key_event(Key::J, e.type);
       break;
-    case SDLK_k:
+    case SDLK_K:
       apply_key_event(Key::K, e.type);
       break;
-    case SDLK_l:
+    case SDLK_L:
       apply_key_event(Key::L, e.type);
       break;
-    case SDLK_m:
+    case SDLK_M:
       apply_key_event(Key::M, e.type);
       break;
-    case SDLK_n:
+    case SDLK_N:
       apply_key_event(Key::N, e.type);
       break;
-    case SDLK_o:
+    case SDLK_O:
       apply_key_event(Key::O, e.type);
       break;
-    case SDLK_p:
+    case SDLK_P:
       apply_key_event(Key::P, e.type);
       break;
-    case SDLK_q:
+    case SDLK_Q:
       apply_key_event(Key::Q, e.type);
       break;
-    case SDLK_r:
+    case SDLK_R:
       apply_key_event(Key::R, e.type);
       break;
-    case SDLK_s:
+    case SDLK_S:
       apply_key_event(Key::S, e.type);
       break;
-    case SDLK_t:
+    case SDLK_T:
       apply_key_event(Key::T, e.type);
       break;
-    case SDLK_u:
+    case SDLK_U:
       apply_key_event(Key::U, e.type);
       break;
-    case SDLK_v:
+    case SDLK_V:
       apply_key_event(Key::V, e.type);
       break;
-    case SDLK_w:
+    case SDLK_W:
       apply_key_event(Key::W, e.type);
       break;
-    case SDLK_x:
+    case SDLK_X:
       apply_key_event(Key::X, e.type);
       break;
-    case SDLK_y:
+    case SDLK_Y:
       apply_key_event(Key::Y, e.type);
       break;
-    case SDLK_z:
+    case SDLK_Z:
       apply_key_event(Key::Z, e.type);
       break;
     case SDLK_KP_PLUS:
@@ -196,12 +196,12 @@ void EventHandler::set_released_key(Key key, bool value)
 
 void EventHandler::apply_key_event(Key k, uint32_t et)
 {
-  if (et == SDL_KEYDOWN || et == SDL_MOUSEBUTTONDOWN)
+  if (et == SDL_EVENT_KEY_DOWN || et == SDL_EVENT_MOUSE_BUTTON_DOWN)
   {
     pressed_keys[get_idx(k)] = true;
     released_keys[get_idx(k)] = false;
   }
-  else if (et == SDL_KEYUP || et == SDL_MOUSEBUTTONUP)
+  else if (et == SDL_EVENT_KEY_UP || et == SDL_EVENT_MOUSE_BUTTON_UP)
   {
     pressed_keys[get_idx(k)] = false;
     released_keys[get_idx(k)] = true;

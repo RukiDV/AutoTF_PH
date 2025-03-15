@@ -1,7 +1,7 @@
 #include "ui.hpp"
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
-#include "backends/imgui_impl_sdl2.h"
+#include "backends/imgui_impl_sdl3.h"
 
 namespace ve
 {
@@ -35,7 +35,7 @@ void UI::construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uin
   imgui_pool = vmc.logical_device.get().createDescriptorPool(dpci);
 
   ImGui::CreateContext();
-  ImGui_ImplSDL2_InitForVulkan(vmc.window->get());
+  ImGui_ImplSDL3_InitForVulkan(vmc.window->get());
   ImGui_ImplVulkan_InitInfo init_info{};
   init_info.Instance = vmc.instance.get();
   init_info.PhysicalDevice = vmc.physical_device.get();
@@ -55,7 +55,7 @@ void UI::construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uin
 void UI::destruct()
 {
   ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplSDL2_Shutdown();
+  ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
   vmc.logical_device.get().destroyDescriptorPool(imgui_pool);
 }
@@ -63,7 +63,7 @@ void UI::destruct()
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
   ImGui_ImplVulkan_NewFrame();
-  ImGui_ImplSDL2_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
   ImGui::Begin("AutoTF_PH");
   if (ImGui::CollapsingHeader("Navigation"))

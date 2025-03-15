@@ -3,6 +3,7 @@
 #include "event_handler.hpp"
 #include "work_context.hpp"
 #include "util/timer.hpp"
+#include "SDL3/SDL_mouse.h"
 
 struct GPUContext
 {
@@ -63,16 +64,16 @@ void dispatch_pressed_keys(GPUContext& gpu_context, EventHandler& eh, AppState& 
     }
     if (eh.is_key_pressed(Key::MouseLeft))
     {
-        if (!SDL_GetRelativeMouseMode()) 
+        if (!SDL_GetWindowRelativeMouseMode(gpu_context.vmc.window->get()))
         {
-            SDL_SetRelativeMouseMode(SDL_TRUE);
+            SDL_SetWindowRelativeMouseMode(gpu_context.vmc.window->get(), true);
         }
         app_state.cam.on_mouse_move(glm::vec2(eh.mouse_motion.x * 1.5f, eh.mouse_motion.y * 1.5f));
         eh.mouse_motion = glm::vec2(0.0f);
     }
     if (eh.is_key_released(Key::MouseLeft))
     {
-        SDL_SetRelativeMouseMode(SDL_FALSE);
+        SDL_SetWindowRelativeMouseMode(gpu_context.vmc.window->get(), false);
         SDL_WarpMouseInWindow(gpu_context.vmc.window->get(), app_state.get_window_extent().width / 2.0f, app_state.get_window_extent().height / 2.0f);
         eh.set_released_key(Key::MouseLeft, false);
     }
@@ -101,7 +102,7 @@ int gpu_render(const Volume& volume)
         }
         while (SDL_PollEvent(&e))
         {
-            quit |= e.window.event == SDL_WINDOWEVENT_CLOSE;
+            quit |= e.window.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED;
             eh.dispatch_event(e);
         }
         app_state.time_diff = rendering_timer.restart();
