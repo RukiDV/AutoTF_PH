@@ -75,7 +75,6 @@
     }
     std::cout << "Successfully opened raw data file: " << raw_file_path << std::endl;
 
-    // Bestimme Dateigröße
     std::streamsize fileSize = file.tellg();
     file.seekg(0, std::ios::beg);
 
@@ -84,7 +83,6 @@
         return 1;
     }
     // read volume data
-    //file.read(reinterpret_cast<char*>(volume.data.data()), volume_size);
     file.read(reinterpret_cast<char*>(volume.data.data()), volume_size);
     std::cout << "Bytes read: " << file.gcount() << " expected: " << volume_size << std::endl;
 
@@ -124,16 +122,35 @@
 
     return 0;
 }
-
-// function to create a small 2x2x2 volume
+// add small volume for testing purposes
 Volume create_small_volume() 
 {
     Volume volume;
-    volume.resolution = {2, 2, 2};
-    volume.data = {0, 100,  // layer 1
-                   200, 255, // layer 1
-                   50, 75,   // layer 2
-                   150, 200}; // layer 2
+    uint32_t value = 4;
+    volume.resolution = {value, value, value};
+    volume.data.resize(value * value * value, 0);
+
+    // add sphere with radius in the middle of the volume
+    int center_x = value / 2, center_y = value / 2, center_z = value / 2;
+    int radius = 2;
+
+    for (int z = 0; z < value; ++z) 
+    {
+        for (int y = 0; y < value; ++y) 
+        {
+            for (int x = 0; x < value; ++x) 
+            {
+                int dx = x - center_x;
+                int dy = y - center_y;
+                int dz = z - center_z;
+                if (dx * dx + dy * dy + dz * dz <= radius * radius) 
+                {
+                    size_t index = z * value * value + y * value + x;
+                    volume.data[index] = 255;
+                }
+            }
+        }
+    }
     return volume;
 }
 

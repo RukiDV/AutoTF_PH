@@ -8,12 +8,13 @@ struct Volume;
 
 struct PersistencePair 
 {
-    uint32_t birth;
-    uint32_t death;
+    uint32_t birth = 0;
+    uint32_t death = 0;
 
+    PersistencePair() : birth(0), death(0) {}
     PersistencePair(uint32_t b, uint32_t d) : birth(b), death(d) {}
 
-    // method to calculate persistence
+    // calculate persistence
     uint32_t persistence() const { return death - birth; }
 };
 
@@ -37,4 +38,4 @@ private:
     void add_to(uint32_t source_col, uint32_t target_col);
 };
 
-std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix_from_volume(const Volume& volume);
+std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix(const Volume& volume);

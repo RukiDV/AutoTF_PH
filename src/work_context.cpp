@@ -137,4 +137,10 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
   vk::PresentInfoKHR present_info(1, &syncs[app_state.current_frame].get_semaphore(Synchronization::S_RENDER_FINISHED), 1, &swapchain.get(), &image_idx);
   VE_CHECK(vmc.get_present_queue().presentKHR(present_info), "Failed to present image!");
 }
+void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume)
+{
+  std::vector<glm::vec4> tf_data;
+  transfer_function.update(pairs, volume, tf_data);
+  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+}
 } // namespace ve

@@ -5,7 +5,6 @@
 #include "vk/descriptor_set_handler.hpp"
 #include "vk/pipeline.hpp"
 #include "vk/storage.hpp"
-#include "persistence.hpp"
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>

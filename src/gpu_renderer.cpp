@@ -79,11 +79,13 @@ void dispatch_pressed_keys(GPUContext& gpu_context, EventHandler& eh, AppState& 
     }
 }
 
-int gpu_render(const Volume& volume)
+int gpu_render(const Volume& volume, const std::vector<PersistencePair>& pairs)
 {
     AppState app_state;
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
+    gpu_context.wc.set_persistence_pairs(pairs, volume);
+
     bool quit = false;
     Timer rendering_timer;
     SDL_Event e;

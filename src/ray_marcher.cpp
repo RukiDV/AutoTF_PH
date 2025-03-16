@@ -26,8 +26,8 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   std::vector<glm::vec4> initial_tf_data(256);
   for (int i = 0; i < 256; ++i) 
   {
-      float value = i / 255.0f;
-      initial_tf_data[i] = glm::vec4(value, value, value, 1.0);
+    float value = i / 255.0f;
+    initial_tf_data[i] = glm::vec4(value, value, value, 1.0);
   }
   buffers[TF_BUFFER] = storage.add_buffer("transfer_function", initial_tf_data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
 
@@ -71,8 +71,8 @@ void RayMarcher::destruct()
 
 void RayMarcher::reload_shaders()
 {
-    pipeline.destruct();
-    //create_pipeline(); // TODO ruki
+  pipeline.destruct();
+  //create_pipeline(); // TODO
 }
 
 void RayMarcher::compute(vk::CommandBuffer& cb, AppState& app_state, uint32_t read_only_buffer_idx)

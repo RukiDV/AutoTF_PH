@@ -3,7 +3,9 @@
 #include <vector>
 
 #include "app_state.hpp"
+#include "persistence.hpp"
 #include "ray_marcher.hpp"
+#include "transfer_function.hpp"
 #include "ui.hpp"
 #include "vk/storage.hpp"
 #include "vk/swapchain.hpp"
@@ -26,6 +28,8 @@ public:
   void draw_frame(AppState& app_state);
   vk::Extent2D recreate_swapchain(bool vsync);
   std::vector<float> get_result_values();
+  void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
+
 
 private:
   const VulkanMainContext& vmc;
@@ -36,6 +40,8 @@ private:
   RayMarcher ray_marcher;
   uint32_t read_only_buffer_idx = 0;
   UI ui;
+  TransferFunction transfer_function;
+
   std::vector<Synchronization> syncs;
   bool compute_finished = false;
   uint32_t uniform_buffer;
