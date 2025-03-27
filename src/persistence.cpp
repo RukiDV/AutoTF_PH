@@ -1,7 +1,9 @@
 #include "persistence.hpp"
 #include <iostream>
 #include <algorithm>
+#include <limits>
 #include "volume.hpp"
+#include "merge_tree.hpp"
 
 BoundaryMatrix::BoundaryMatrix(uint32_t num_cols) : num_cols_(num_cols), matrix_(num_cols, std::vector<uint32_t>()), dims_(num_cols, 0) {}
 
@@ -39,41 +41,7 @@ std::vector<uint32_t> BoundaryMatrix::get_col(uint32_t col_idx) const
     return {};
 }
 
-// perform the reduction
-std::vector<PersistencePair> BoundaryMatrix::reduce() 
-{
-    std::vector<PersistencePair> pairs;
-    std::vector<int> lowest_one_lookup(num_cols_, -1);
-
-    for (uint32_t cur_col = 0; cur_col < num_cols_; ++cur_col) 
-    {
-        if (!matrix_[cur_col].empty()) 
-        {
-            uint32_t lowest_one = *std::max_element(matrix_[cur_col].begin(), matrix_[cur_col].end());
-
-            while (lowest_one != 0 && lowest_one_lookup[lowest_one] != -1) 
-            {
-                add_to(lowest_one_lookup[lowest_one], cur_col);
-                if (!matrix_[cur_col].empty()) 
-                {
-                    lowest_one = *std::max_element(matrix_[cur_col].begin(), matrix_[cur_col].end());
-                } else 
-                {
-                    lowest_one = 0;
-                }
-            }
-
-            if (lowest_one != 0) 
-            {
-                lowest_one_lookup[lowest_one] = cur_col;
-                pairs.emplace_back(lowest_one, cur_col);
-            }
-        }
-    }
-    return pairs;
-}
-
-// add entries from one column to another
+// add entries from one column to another (mod 2 addition)
 void BoundaryMatrix::add_to(uint32_t source_col, uint32_t target_col) 
 {
     for (uint32_t entry : matrix_[source_col]) 
@@ -82,13 +50,67 @@ void BoundaryMatrix::add_to(uint32_t source_col, uint32_t target_col)
         if (it != matrix_[target_col].end()) 
         {
             matrix_[target_col].erase(it);
-        } else 
-        {
+        } else {
             matrix_[target_col].push_back(entry);
         }
     }
+    std::sort(matrix_[target_col].begin(), matrix_[target_col].end());
 }
 
+// finalize a column (produces a canonical copy)
+void BoundaryMatrix::finalize(uint32_t col_idx) 
+{
+    std::vector<uint32_t> temp(matrix_[col_idx].begin(), matrix_[col_idx].end());
+    matrix_[col_idx].swap(temp);
+}
+
+// perform the reduction
+std::vector<PersistencePair> BoundaryMatrix::reduce() 
+{
+    std::vector<PersistencePair> pairs;
+    const uint32_t EMPTY = std::numeric_limits<uint32_t>::max();
+    std::vector<uint32_t> lowest_one_lookup(num_cols_, EMPTY);
+
+    MergeTree merge_tree;
+
+    for (uint32_t cur_col = 0; cur_col < num_cols_; ++cur_col) 
+    {
+        if (!matrix_[cur_col].empty()) 
+        {
+            uint32_t lowest_one = *std::max_element(matrix_[cur_col].begin(), matrix_[cur_col].end());
+
+            while (lowest_one != EMPTY && lowest_one_lookup[lowest_one] != EMPTY) 
+            {
+                add_to(lowest_one_lookup[lowest_one], cur_col);
+                if (!matrix_[cur_col].empty()) 
+                {
+                    lowest_one = *std::max_element(matrix_[cur_col].begin(), matrix_[cur_col].end());
+                } else 
+                {
+                    lowest_one = EMPTY;
+                }
+            }
+
+            if (lowest_one != EMPTY)
+            {
+                lowest_one_lookup[lowest_one] = cur_col;
+                pairs.emplace_back(lowest_one, cur_col);
+
+                if (merge_tree.get_all_nodes().find(lowest_one) == merge_tree.get_all_nodes().end()) 
+                {
+                    merge_tree.add_node(lowest_one, lowest_one, lowest_one);
+                }
+                if (merge_tree.get_all_nodes().find(cur_col) == merge_tree.get_all_nodes().end()) 
+                {
+                    merge_tree.add_node(cur_col, lowest_one, cur_col);
+                }
+                merge_tree.union_nodes(lowest_one, cur_col);
+            }
+        }
+        finalize(cur_col);
+    }
+    return pairs;
+}
 // create the boundary matrix from the volume
 std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix(const Volume& volume) 
 {
@@ -106,7 +128,7 @@ std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix(const Volume&
     std::vector<std::vector<uint32_t>> voxels;
     std::vector<int> filtration_values;
 
-    auto index = [&](uint32_t x, uint32_t y, uint32_t z) 
+    auto index = [&](uint32_t x, uint32_t y, uint32_t z)
     {
         return z * dim_y * dim_x + y * dim_x + x;
     };

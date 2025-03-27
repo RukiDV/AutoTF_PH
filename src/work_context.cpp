@@ -15,7 +15,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   renderer.setup_storage(app_state);
   ray_marcher.setup_storage(app_state, volume);
   swapchain.construct(app_state.vsync);
-  app_state.get_window_extent() = swapchain.get_extent();
+  app_state.set_window_extent(swapchain.get_extent());
   for (uint32_t i = 0; i < frames_in_flight; ++i)
   {
     syncs.emplace_back(vmc.logical_device.get());
@@ -24,6 +24,10 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   renderer.construct(swapchain.get_render_pass(), app_state);
   ray_marcher.construct(app_state, vcc, volume.resolution);
   ui.construct(vcc, swapchain.get_render_pass(), frames_in_flight);
+  ui.set_merge_tree(&merge_tree);
+  ui.set_transfer_function(&transfer_function);
+  ui.set_volume(&volume);
+  ui.set_persistence_pairs(&persistence_pairs);
 }
 
 void WorkContext::destruct()
@@ -137,10 +141,79 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
   vk::PresentInfoKHR present_info(1, &syncs[app_state.current_frame].get_semaphore(Synchronization::S_RENDER_FINISHED), 1, &swapchain.get(), &image_idx);
   VE_CHECK(vmc.get_present_queue().presentKHR(present_info), "Failed to present image!");
 }
-void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume)
+
+void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume) {
+    std::vector<glm::vec4> tf_data;
+    transfer_function.update(pairs, volume, tf_data);
+    std::cout << "Transfer function updated with " << tf_data.size() << " entries." << std::endl;
+    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+    vmc.logical_device.get().waitIdle();
+}
+
+// build a histogram-based color/opacity array
+  void WorkContext::histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data)
+  {
+      const int bins = 256;
+      std::vector<int> histogram(bins, 0);
+
+      for (auto val : volume.data)
+      {
+          histogram[val]++;
+      }
+
+      int maxCount = *std::max_element(histogram.begin(), histogram.end());
+      if (maxCount == 0) maxCount = 1;
+
+      tf_data.resize(bins);
+      for (int i = 0; i < bins; ++i)
+      {
+          float normalized = float(histogram[i]) / float(maxCount);
+          float intensity = float(i) / 255.0f;
+          tf_data[i] = glm::vec4(intensity, intensity, intensity, normalized);
+      }
+  }
+
+// refine the TF with persistent homology data
+void WorkContext::refine_with_ph(const Volume &volume, int ph_threshold, std::vector<glm::vec4> &tf_data)
 {
-  std::vector<glm::vec4> tf_data;
-  transfer_function.update(pairs, volume, tf_data);
-  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+    // compute raw persistence pairs
+    std::vector<int> filt_vals;
+    auto raw_pairs = calculate_persistence_pairs(volume, filt_vals);
+
+    // apply the threshold cut to remove low-persistence features
+    auto filtered = threshold_cut(raw_pairs, ph_threshold);
+
+    // compute the maximum persistence value from the filtered pairs
+    float maxPersistence = 0.0f;
+    for (const auto &pair : filtered)
+    {
+        float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
+        if (persistence > maxPersistence)
+            maxPersistence = persistence;
+    }
+    if (maxPersistence < 1e-6f)
+        maxPersistence = 1.0f;
+
+    // for each filtered pair, compute a weight and blend the highlight into the base TF
+    for (auto &pair : filtered) 
+    {
+        float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
+        float weight = persistence / maxPersistence;
+        weight = glm::clamp(weight, 0.2f, 1.0f);
+
+        // convert birth and death to indices in the transfer function range [0,255]
+        uint32_t b = std::clamp(pair.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+        uint32_t d = std::clamp(pair.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+
+        // blend the base TF color with red for the birth index
+        glm::vec4 baseBirth = tf_data[b];
+        glm::vec4 redHighlight = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+        tf_data[b] = glm::mix(baseBirth, redHighlight, weight);
+
+        // blend the base TF color with green for the death index
+        glm::vec4 baseDeath = tf_data[d];
+        glm::vec4 greenHighlight = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+        tf_data[d] = glm::mix(baseDeath, greenHighlight, weight);
+    }
 }
 } // namespace ve

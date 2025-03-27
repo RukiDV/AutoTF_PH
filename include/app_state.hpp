@@ -14,6 +14,21 @@ public:
   float move_speed = 10.0f;
   bool save_screenshot = false;
 
+ // controlling levels in the merge tree
+  int target_level = 0;
+  bool apply_target_level = false;
+
+  // threshold-based cuts in persistent homology
+  int persistence_threshold = 0;
+  bool apply_persistence_threshold = false;
+
+  // applying a purely histogram-based transfer function
+  bool apply_histogram_tf = false;
+
+  // hybrid histogram + PH approach.
+  bool apply_histogram_ph_tf = false;
+  int ph_threshold = 10;
+
   vk::Extent2D get_render_extent() const { return render_extent; }
   vk::Extent2D get_window_extent() const { return window_extent; }
   float get_aspect_ratio() const { return aspect_ratio; }

@@ -31,6 +31,9 @@ set(SOURCE_FILES
   src/window.cpp
   src/work_context.cpp
   src/camera.cpp
+  src/transfer_function.cpp
+  src/merge_tree.cpp
+  src/threshold_cut.cpp
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl3.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_vulkan.cpp"
@@ -40,6 +43,7 @@ set(SOURCE_FILES
 
 find_package(Vulkan REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(VTK REQUIRED COMPONENTS CommonColor CommonCore RenderingCore RenderingOpenGL2 InteractionStyle FiltersCore CommonDataModel CommonExecutionModel)
 
 add_executable(AutoTF_PH src/main.cpp ${SOURCE_FILES})
 target_include_directories(AutoTF_PH PRIVATE "${PROJECT_SOURCE_DIR}/include"
@@ -51,4 +55,4 @@ target_include_directories(AutoTF_PH PRIVATE "${PROJECT_SOURCE_DIR}/include"
   "${ZLIB_INCLUDE_DIRS}")
 add_subdirectory("${SDL3_DIR}")
 
-target_link_libraries(AutoTF_PH PRIVATE SDL3 ${ZLIB_LIBRARIES} ${Vulkan_LIBRARIES})
+target_link_libraries(AutoTF_PH PRIVATE SDL3 ${ZLIB_LIBRARIES} ${Vulkan_LIBRARIES} ${VTK_LIBRARIES})

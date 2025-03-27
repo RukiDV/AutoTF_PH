@@ -36,6 +36,7 @@ private:
     std::vector<uint32_t> dims_;
 
     void add_to(uint32_t source_col, uint32_t target_col);
+    void finalize(uint32_t col_idx);
 };
 
 std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix(const Volume& volume);
