@@ -30,9 +30,8 @@ public:
   vk::Extent2D recreate_swapchain(bool vsync);
   std::vector<float> get_result_values();
   void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
-  void set_transfer_function(const TransferFunction &tf) {
-        transfer_function = tf;
-    }
+  void set_transfer_function(const TransferFunction &tf) { transfer_function = tf;}
+  MergeTree& getMergeTree() { return merge_tree; }
 
   // update the transfer function from a histogram
   void update_histogram_tf(const Volume &volume)

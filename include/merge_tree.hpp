@@ -42,6 +42,9 @@ public:
     void set_target_level(int level);
     void set_persistence_threshold(int threshold);
 
+    MergeTree(MergeTree&& other) noexcept;
+    MergeTree& operator=(MergeTree&& other) noexcept;
+
 private:
     std::unordered_map<uint32_t, MergeTreeNode*> nodes;
     MergeTreeNode* root;

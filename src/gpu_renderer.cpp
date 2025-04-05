@@ -1,4 +1,3 @@
-// gpu_renderer.cpp
 #include "gpu_renderer.hpp"
 
 #include "event_handler.hpp"
@@ -87,9 +86,9 @@ void dispatch_pressed_keys(GPUContext &gpu_context, EventHandler &eh, AppState &
     }
 }
 
-std::vector<PersistencePair> calculate_persistence_pairs(const Volume &volume, std::vector<int> &filtration_values) 
+std::vector<PersistencePair> calculate_persistence_pairs(const Volume &volume, std::vector<int>& filtration_values, FiltrationMode mode)
 {
-    auto [boundary_matrix, filt_vals] = create_boundary_matrix(volume);
+    auto [boundary_matrix, filt_vals] = create_boundary_matrix(volume, mode);
     filtration_values = filt_vals;
     std::vector<PersistencePair> raw_pairs = boundary_matrix.reduce();
     return raw_pairs;
@@ -284,12 +283,38 @@ void update_transfer_function_for_test(TransferFunction* tf, const Volume& volum
     }
     tf->update(hardcoded_pairs(), volume, tf_data);
 }
-void transform_volume(Volume &vol)
-{
-    for (auto &value : vol.data)
-    {
-        value = static_cast<uint32_t>(pow(value, 1.2f));
+
+void printPersistenceStats(const std::vector<PersistencePair>& pairs) {
+    if (pairs.empty()) return;
+    
+    uint32_t minPers = std::numeric_limits<uint32_t>::max();
+    uint32_t maxPers = 0;
+    double sumPers = 0.0;
+    double sumDiag = 0.0;
+    double minDiag = std::numeric_limits<double>::max();
+    double maxDiag = 0.0;
+    double sqrt2 = std::sqrt(2.0);
+
+    for (const auto &p : pairs) {
+        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
+        minPers = std::min(minPers, pers);
+        maxPers = std::max(maxPers, pers);
+        sumPers += pers;
+
+        double diag = (p.death > p.birth ? double(p.death - p.birth) / sqrt2 : 0.0);
+        minDiag = std::min(minDiag, diag);
+        maxDiag = std::max(maxDiag, diag);
+        sumDiag += diag;
     }
+    double avgPers = sumPers / pairs.size();
+    double avgDiag = sumDiag / pairs.size();
+
+    std::cout << "Persistence stats: min = " << minPers 
+              << ", max = " << maxPers 
+              << ", avg = " << avgPers << std::endl;
+    std::cout << "Diagonal distance stats: min = " << minDiag 
+              << ", max = " << maxDiag 
+              << ", avg = " << avgDiag << std::endl;
 }
 
 int gpu_render(const Volume &volume) 
@@ -299,18 +324,11 @@ int gpu_render(const Volume &volume)
     GPUContext gpu_context(app_state, volume);
 
     std::vector<int> filtration_values;
-    std::vector<PersistencePair> raw_pairs = calculate_persistence_pairs(volume, filtration_values);
+    std::vector<PersistencePair> raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
     std::cout << "Raw persistence pairs: " << raw_pairs.size() << std::endl;
     
-    // apply the threshold cut
-    std::vector<PersistencePair> currentFilteredPairs = threshold_cut(raw_pairs, app_state.persistence_threshold);
-    std::cout << "Initial filtered persistence pairs (threshold " << app_state.persistence_threshold << "): " << currentFilteredPairs.size() << std::endl;
-    
-    // build the merge tree from the filtered pairs
-    MergeTree merge_tree = build_merge_tree_with_tolerance(currentFilteredPairs, 5);
-    //exportMergeTreeEdges(merge_tree, "merge_tree_edges.txt");
-    //exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", app_state.target_level, app_state.persistence_threshold);
-    exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
+    gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(raw_pairs, 5);
+    exportFilteredMergeTreeEdges(gpu_context.wc.getMergeTree(), "merge_tree_edges_filtered.txt", 3, 10);
 
     std::ofstream outfile("persistence_pairs.txt");
     if (outfile.is_open()) {
@@ -330,35 +348,48 @@ int gpu_render(const Volume &volume)
         dispatch_pressed_keys(gpu_context, eh, app_state);
         app_state.cam.update();
 
+        if (app_state.apply_filtration_mode)
+        {
+            raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
+            std::cout << "Filtration mode updated. New raw persistence pairs: " << raw_pairs.size() << std::endl;
+            gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(raw_pairs, 5);
+            app_state.apply_filtration_mode = false;
+        }
+
+        // if the persistence threshold has been updated:
+        if (app_state.apply_persistence_threshold) 
+        {
+            std::vector<PersistencePair> currentFilteredPairs = threshold_cut(raw_pairs, app_state.persistence_threshold);
+            std::cout << "Persistence threshold updated to " << app_state.persistence_threshold << ", filtered pairs: " << currentFilteredPairs.size() << std::endl;
+            
+            // rebuild the merge tree from the filtered pairs using a chosen tolerance
+            gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(currentFilteredPairs, 2);
+            
+            // extract persistence pairs at the selected target level
+            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(gpu_context.wc.getMergeTree(), app_state.target_level);
+            
+            // update the transfer function accordingly
+            gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
+            
+            app_state.apply_persistence_threshold = false;
+        }
+
+        if (app_state.apply_target_level) 
+        {
+            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(gpu_context.wc.getMergeTree(), app_state.target_level);
+            gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
+            app_state.apply_target_level = false;
+        }
+        
         if (app_state.apply_histogram_ph_tf) 
         {
             gpu_context.wc.update_histogram_ph_tf(volume, app_state.ph_threshold);
             app_state.apply_histogram_ph_tf = false;
         }
-
         if (app_state.apply_histogram_tf) {
             gpu_context.wc.update_histogram_tf(volume);
             app_state.apply_histogram_tf = false;
         }
-
-        if (app_state.apply_persistence_threshold) 
-        {
-            currentFilteredPairs = threshold_cut(raw_pairs, app_state.persistence_threshold);
-            merge_tree = build_merge_tree_with_tolerance(currentFilteredPairs, 5);
-            app_state.apply_persistence_threshold = false;
-            std::cout << "Threshold updated to " << app_state.persistence_threshold << ", filtered pairs: " << currentFilteredPairs.size() << std::endl;
-
-            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
-            gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
-        }
-
-        if (app_state.apply_target_level) 
-        {
-            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
-            gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
-            app_state.apply_target_level = false; // Reset flag.
-        }
-        
         try {
             gpu_context.wc.draw_frame(app_state);
         } catch (const vk::OutOfDateKHRError &ex) {

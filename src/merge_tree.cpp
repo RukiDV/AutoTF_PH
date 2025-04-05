@@ -120,6 +120,35 @@ std::optional<uint32_t> findCloseKey(const std::unordered_map<uint32_t, uint32_t
     return std::nullopt;
 }
 
+MergeTree::MergeTree(MergeTree&& other) noexcept
+    : nodes(std::move(other.nodes)),
+      root(other.root),
+      target_level(other.target_level),
+      persistence_threshold(other.persistence_threshold)
+{
+    other.root = nullptr;
+    other.nodes.clear();
+}
+
+MergeTree& MergeTree::operator=(MergeTree&& other) noexcept 
+{
+    if (this != &other) 
+    {
+        // delete current nodes to avoid memory leaks
+        for (auto& [id, node] : nodes) 
+        {
+            delete node;
+        }
+        nodes = std::move(other.nodes);
+        root = other.root;
+        target_level = other.target_level;
+        persistence_threshold = other.persistence_threshold;
+        other.root = nullptr;
+        other.nodes.clear();
+    }
+    return *this;
+}
+
 MergeTree build_merge_tree_with_tolerance(const std::vector<PersistencePair>& persistence_pairs, uint32_t tol) 
 {
     MergeTree merge_tree;

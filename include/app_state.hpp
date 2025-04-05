@@ -1,7 +1,8 @@
 #pragma once
 #include <cstdint>
-#include "camera.hpp"
 #include "vk/common.hpp"
+#include "camera.hpp"
+#include "volume.hpp"
 
 struct AppState {
 public:
@@ -28,6 +29,9 @@ public:
   // hybrid histogram + PH approach.
   bool apply_histogram_ph_tf = false;
   int ph_threshold = 10;
+
+  FiltrationMode filtration_mode = FiltrationMode::LowerStar;
+  bool apply_filtration_mode = false;
 
   vk::Extent2D get_render_extent() const { return render_extent; }
   vk::Extent2D get_window_extent() const { return window_extent; }

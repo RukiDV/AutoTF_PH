@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <utility>
 
+#include "volume.hpp"
+
 struct Volume;
 
 struct PersistencePair 
@@ -39,4 +41,4 @@ private:
     void finalize(uint32_t col_idx);
 };
 
-std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix(const Volume& volume);
+std::pair<BoundaryMatrix, std::vector<int>> create_boundary_matrix(const Volume& volume, FiltrationMode mode = FiltrationMode::LowerStar);

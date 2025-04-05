@@ -3,6 +3,10 @@
 #include "backends/imgui_impl_vulkan.h"
 #include "backends/imgui_impl_sdl3.h"
 #include <iostream>
+#include "threshold_cut.hpp"
+#include "persistence.hpp"
+#include "merge_tree.hpp"
+#include "volume.hpp"
 
 namespace ve
 {
@@ -81,22 +85,6 @@ void UI::set_persistence_pairs(const std::vector<PersistencePair>* pairs)
   this->persistence_pairs = pairs;
 }
 
-void UI::draw_merge_tree_node(const MergeTreeNode* node)
-{
-    if (node == nullptr) return;
-
-    ImGui::PushID(node->id);
-    if (ImGui::TreeNode((void*)(intptr_t)node->id, "Node %d (Birth: %d, Death: %d)", node->id, node->birth, node->death))
-    {
-        for (const auto& child : node->children)
-        {
-            draw_merge_tree_node(child);
-        }
-        ImGui::TreePop();
-    }
-    ImGui::PopID();
-}
-
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
   ImGui_ImplVulkan_NewFrame();
@@ -121,55 +109,44 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
   }
   ImGui::Separator();
 
-  // target level settings
-  if (ImGui::CollapsingHeader("Target Level", ImGuiTreeNodeFlags_DefaultOpen))
+  // persistence threshold controls
+  if (ImGui::CollapsingHeader("Persistent Feature Selection", ImGuiTreeNodeFlags_DefaultOpen))
   {
-      int max_level = 100;
-      ImGui::SliderInt("Set Level", &app_state.target_level, 0, max_level);
-      if (ImGui::Button("Apply Target Level"))
-      {
-          app_state.apply_target_level = true;
-          if (merge_tree)
-              merge_tree->set_target_level(app_state.target_level);
-      }
-      ImGui::SameLine();
-      ImGui::Text("Current: %d", app_state.target_level);
+    ImGui::SliderInt("Persistence Threshold", &app_state.persistence_threshold, 110000, 110300);
+    if (ImGui::Button("Apply Persistence Threshold"))
+    {
+        app_state.apply_persistence_threshold = true;
+    }
+    ImGui::SameLine();
+    ImGui::Text("Current Threshold: %d", app_state.persistence_threshold);
+
+    ImGui::SliderInt("Target Level", &app_state.target_level, 0, 150);
+    if (ImGui::Button("Apply Target Level"))
+    {
+        app_state.apply_target_level = true;
+        if (merge_tree)
+            merge_tree->set_target_level(app_state.target_level);
+    }
+    ImGui::SameLine();
+    ImGui::Text("Current Level: %d", app_state.target_level);
   }
   ImGui::Separator();
 
-  // transfer function settings
-  if (ImGui::CollapsingHeader("Transfer Function", ImGuiTreeNodeFlags_DefaultOpen))
+  if (ImGui::CollapsingHeader("Filtration Mode", ImGuiTreeNodeFlags_DefaultOpen))
   {
-      if (ImGui::Button("Apply Histogram TF"))
+      static int currentMode = 0; // 0 for LowerStar, 1 for UpperStar
+      const char* modeOptions[] = { "Lower Star", "Upper Star" };
+      if (ImGui::Combo("Mode", &currentMode, modeOptions, IM_ARRAYSIZE(modeOptions)))
       {
-          app_state.apply_histogram_tf = true;
+        app_state.filtration_mode = (currentMode == 0) ? FiltrationMode::LowerStar : FiltrationMode::UpperStar;
       }
-      if (ImGui::Button("Apply Hybrid TF"))
-      {
-          app_state.apply_histogram_ph_tf = true;
-      }
-      ImGui::SliderInt("PH Threshold", &app_state.ph_threshold, 0, 100);
-  }
-  ImGui::Separator();
-
-  // persistence threshold settings
-  if (ImGui::CollapsingHeader("Persistence", ImGuiTreeNodeFlags_DefaultOpen))
-  {
-      ImGui::SliderInt("Persistence Threshold", &app_state.persistence_threshold, 0, 1000);
-      if (ImGui::Button("Apply Persistence Threshold"))
-      {
-          std::cout << "Threshold button pressed!" << std::endl;
-          if (merge_tree)
-          {
-              merge_tree->set_persistence_threshold(app_state.persistence_threshold);
-          }
+      if (ImGui::Button("Apply Filtration Mode"))
+      {  
+        app_state.apply_filtration_mode = true;
       }
       ImGui::SameLine();
-      ImGui::Text("Current: %d", app_state.persistence_threshold);
+      ImGui::Text("Current mode: %s", (currentMode == 0) ? "Lower Star" : "Upper Star");
   }
-  ImGui::Separator();
-  ImGui::TextColored(ImVec4(0.0, 1.0, 0.0, 1.0), "Camera");
-  ImGui::DragFloat("Camera speed", &app_state.move_speed, 10.0f, 0.0f, 100.0f);
   ImGui::PushItemWidth(80.0f);
   ImGui::Separator();
   ImGui::Text((std::to_string(app_state.time_diff * 1000) + " ms; FPS: " + std::to_string(1.0 / app_state.time_diff)).c_str());

@@ -1,15 +1,7 @@
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <algorithm>
-#include <limits>
-#include <cstdint>
-
 #include "volume.hpp"
-#include "persistence.hpp"
-#include "merge_tree.hpp"
-#include "app_state.hpp"
 #include "gpu_renderer.hpp"
+
+#include <iostream>
 
 int main(int argc, char* argv[])
 {
