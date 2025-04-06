@@ -120,7 +120,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     ImGui::SameLine();
     ImGui::Text("Current Threshold: %d", app_state.persistence_threshold);
 
-    ImGui::SliderInt("Target Level", &app_state.target_level, 0, 150);
+    ImGui::SliderInt("Target Level", &app_state.target_level, 0, 300);
     if (ImGui::Button("Apply Target Level"))
     {
         app_state.apply_target_level = true;
@@ -141,7 +141,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         app_state.filtration_mode = (currentMode == 0) ? FiltrationMode::LowerStar : FiltrationMode::UpperStar;
       }
       if (ImGui::Button("Apply Filtration Mode"))
-      {  
+      {
         app_state.apply_filtration_mode = true;
       }
       ImGui::SameLine();
@@ -151,6 +151,46 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
   ImGui::Separator();
   ImGui::Text((std::to_string(app_state.time_diff * 1000) + " ms; FPS: " + std::to_string(1.0 / app_state.time_diff)).c_str());
   ImGui::Text("'G': Show/Hide UI");
+  ImGui::End();
+
+    static float zoom = 1.0f;
+    ImGuiIO& io = ImGui::GetIO();
+    zoom += io.MouseWheel * 0.1f;
+    if(zoom < 0.1f) zoom = 0.1f;
+
+    // define a base size for the diagram
+    ImVec2 base_size = ImVec2(400, 400);
+    ImVec2 diagram_size = ImVec2(base_size.x * zoom, base_size.y * zoom);
+
+    ImGui::Begin("Persistence Diagram");
+    if (persistence_texture_ID)
+    {
+      ImGui::Image(persistence_texture_ID, diagram_size);
+
+      if (ImGui::IsItemClicked())
+      {
+        ImVec2 image_pos = ImGui::GetItemRectMin();
+        ImVec2 mouse_pos = ImGui::GetMousePos();
+        float relX = (mouse_pos.x - image_pos.x) / diagram_size.x;
+        float relY = (mouse_pos.y - image_pos.y) / diagram_size.y;
+        
+        float max_val = 255.0f;
+        uint32_t clicked_birth = static_cast<uint32_t>(relX * max_val);
+        uint32_t clicked_death = static_cast<uint32_t>((1.0f - relY) * max_val);
+        
+        ImGui::Text("Selected: Birth=%d, Death=%d", clicked_birth, clicked_death);
+
+        PersistencePair selectedPair(clicked_birth, clicked_death);
+        if (on_pair_selected)
+        {
+            on_pair_selected(selectedPair);
+        }
+      }
+  }
+  else
+  {
+    ImGui::Text("Persistence diagram texture not loaded.");
+  }
   ImGui::End();
   ImGui::EndFrame();
 

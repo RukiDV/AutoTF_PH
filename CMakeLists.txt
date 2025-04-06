@@ -34,12 +34,15 @@ set(SOURCE_FILES
   src/transfer_function.cpp
   src/merge_tree.cpp
   src/threshold_cut.cpp
+  src/util/texture_loader.cpp
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl3.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_vulkan.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_draw.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_widgets.cpp"
-  "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_tables.cpp")
+  "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui_tables.cpp"
+  "${PROJECT_SOURCE_DIR}/dependencies/implot/implot.cpp"
+  "${PROJECT_SOURCE_DIR}/dependencies/implot/implot_items.cpp")
 
 find_package(Vulkan REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -48,6 +51,7 @@ find_package(VTK REQUIRED COMPONENTS CommonColor CommonCore RenderingCore Render
 add_executable(AutoTF_PH src/main.cpp ${SOURCE_FILES})
 target_include_directories(AutoTF_PH PRIVATE "${PROJECT_SOURCE_DIR}/include"
   "${PROJECT_SOURCE_DIR}/dependencies/"
+  "${PROJECT_SOURCE_DIR}/dependencies/implot"
   "${Vulkan_INCLUDE_DIRS}"
   "${SDL3_DIR}/include/"
   "${PROJECT_SOURCE_DIR}/dependencies/VulkanMemoryAllocator/include/"

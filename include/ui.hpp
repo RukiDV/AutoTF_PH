@@ -6,6 +6,8 @@
 #include "vk/vulkan_command_context.hpp"
 #include "merge_tree.hpp"
 #include "transfer_function.hpp"
+#include <functional>
+#include "imgui.h"
 
 namespace ve
 {
@@ -21,6 +23,15 @@ public:
   void set_transfer_function(TransferFunction* transfer_function);
   void set_volume(const Volume* volume);
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs);
+  void setPersistenceTexture(ImTextureID tex) 
+  { 
+    persistence_texture_ID = tex; 
+  }
+  void set_onPairSelected(const std::function<void(const PersistencePair&)>& callback)
+  {
+      on_pair_selected = callback;
+  }
+  const Volume* getVolume() const { return volume; }
 
 private:
   const VulkanMainContext& vmc;
@@ -29,7 +40,8 @@ private:
   TransferFunction* transfer_function = nullptr;
   const Volume* volume = nullptr;
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
+  ImTextureID persistence_texture_ID = (ImTextureID)0;
+  std::function<void(const PersistencePair&)> on_pair_selected;
 
-  void draw_merge_tree_node(const MergeTreeNode* node);
 };
 } // namespace ve

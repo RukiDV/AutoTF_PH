@@ -18,7 +18,7 @@ int main(int argc, char* argv[])
     } else 
     {
         std::cout << "No file provided. Using default small volume." << std::endl;
-        volume = create_small_volume();
+        volume = create_simple_volume();
     }
 
     if (gpu_render(volume) != 0) 

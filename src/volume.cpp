@@ -5,6 +5,10 @@
 #include <filesystem>
 #include <algorithm>
 
+#include <vector>
+#include <cstdint>
+#include <cmath>
+
 [[nodiscard]] int load_volume_from_file(const std::string& header_path, Volume& volume)
 {
     std::ifstream header_file(header_path);
@@ -122,38 +126,29 @@
 
     return 0;
 }
-// add small volume for testing purposes
-Volume create_small_volume() 
+
+Volume create_simple_volume()
 {
     Volume volume;
-    uint32_t value = 4;
-    volume.resolution = {value, value, value};
-    volume.data.resize(value * value * value, 0);
+    volume.resolution = glm::uvec3(16, 16, 16);
+    uint32_t totalVoxels = 16 * 16 * 16;
+    volume.data.resize(totalVoxels, 64); // outer cube with intensity 64
 
-    // add sphere with radius in the middle of the volume
-    int center_x = value / 2, center_y = value / 2, center_z = value / 2;
-    int radius = 2;
-
-    for (int z = 0; z < value; ++z) 
+    auto idx = [&](uint32_t x, uint32_t y, uint32_t z) -> size_t 
     {
-        for (int y = 0; y < value; ++y) 
+        return z * 16 * 16 + y * 16 + x;
+    };
+
+    // smaller inner cube with a higher intensity
+    for (uint32_t z = 6; z < 10; ++z) 
+    {
+        for (uint32_t y = 6; y < 10; ++y)
         {
-            for (int x = 0; x < value; ++x) 
+            for (uint32_t x = 6; x < 10; ++x)
             {
-                int dx = x - center_x;
-                int dy = y - center_y;
-                int dz = z - center_z;
-                if (dx * dx + dy * dy + dz * dz <= radius * radius) 
-                {
-                    size_t index = z * value * value + y * value + x;
-                    volume.data[index] = 255;
-                }
+                volume.data[idx(x, y, z)] = 255;
             }
         }
     }
     return volume;
 }
-
-
-
-

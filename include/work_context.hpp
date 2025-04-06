@@ -15,10 +15,10 @@
 #include "vk/synchronization.hpp"
 #include "volume.hpp"
 #include "gpu_renderer.hpp"
+#include "util/texture_loader.hpp"
 
 namespace ve {
 
-// manages the orchestration of rendering and computing
 class WorkContext
 {
 public:
@@ -32,7 +32,10 @@ public:
   void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
   void set_transfer_function(const TransferFunction &tf) { transfer_function = tf;}
   MergeTree& getMergeTree() { return merge_tree; }
-
+  
+  ImTextureID load_persistence_diagram_texture(const std::string &filePath);
+  void highlight_persistence_pair(const PersistencePair& pair);
+  
   // update the transfer function from a histogram
   void update_histogram_tf(const Volume &volume)
   {
@@ -75,6 +78,8 @@ std::vector<PersistencePair> persistence_pairs;
 std::vector<Synchronization> syncs;
 bool compute_finished = false;
 uint32_t uniform_buffer;
+TextureResource persistence_texture_resource;
+
 void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
 void histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data); 
 void refine_with_ph(const Volume &volume, int ph_threshold, std::vector<glm::vec4> &tf_data);

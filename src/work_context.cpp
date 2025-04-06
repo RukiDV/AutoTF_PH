@@ -1,5 +1,7 @@
 #include "work_context.hpp"
 #include <vulkan/vulkan_enums.hpp>
+#include "stb/stb_image.h"
+#include "transfer_function.hpp"
 
 namespace ve
 {
@@ -28,6 +30,13 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_transfer_function(&transfer_function);
   ui.set_volume(&volume);
   ui.set_persistence_pairs(&persistence_pairs);
+
+  ImTextureID persistence_tex = load_persistence_diagram_texture("output_plots/persistence_diagram.png");
+  ui.setPersistenceTexture(persistence_tex);
+  ui.set_onPairSelected([this](const PersistencePair& pair) 
+  {
+      this->highlight_persistence_pair(pair);
+  });
 }
 
 void WorkContext::destruct()
@@ -35,6 +44,9 @@ void WorkContext::destruct()
   vmc.logical_device.get().waitIdle();
   for (auto& sync : syncs) sync.destruct();
   syncs.clear();
+  
+  TextureLoader::destroyTextureResource(vmc, persistence_texture_resource);
+  
   swapchain.destruct();
   renderer.destruct();
   ray_marcher.destruct();
@@ -176,44 +188,82 @@ void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pair
 // refine the TF with persistent homology data
 void WorkContext::refine_with_ph(const Volume &volume, int ph_threshold, std::vector<glm::vec4> &tf_data)
 {
-    // compute raw persistence pairs
-    std::vector<int> filt_vals;
-    auto raw_pairs = calculate_persistence_pairs(volume, filt_vals);
+  // compute raw persistence pairs
+  std::vector<int> filt_vals;
+  auto raw_pairs = calculate_persistence_pairs(volume, filt_vals);
 
-    // apply the threshold cut to remove low-persistence features
-    auto filtered = threshold_cut(raw_pairs, ph_threshold);
+  // apply the threshold cut to remove low-persistence features
+  auto filtered = threshold_cut(raw_pairs, ph_threshold);
 
-    // compute the maximum persistence value from the filtered pairs
-    float maxPersistence = 0.0f;
-    for (const auto &pair : filtered)
+  // compute the maximum persistence value from the filtered pairs
+  float maxPersistence = 0.0f;
+  for (const auto &pair : filtered)
+  {
+      float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
+      if (persistence > maxPersistence)
+          maxPersistence = persistence;
+  }
+  if (maxPersistence < 1e-6f)
+      maxPersistence = 1.0f;
+
+  // for each filtered pair, compute a weight and blend the highlight into the base TF
+  for (auto &pair : filtered) 
+  {
+      float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
+      float weight = persistence / maxPersistence;
+      weight = glm::clamp(weight, 0.2f, 1.0f);
+
+      // convert birth and death to indices in the transfer function range [0,255]
+      uint32_t b = std::clamp(pair.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+      uint32_t d = std::clamp(pair.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+
+      // blend the base TF color with red for the birth index
+      glm::vec4 baseBirth = tf_data[b];
+      glm::vec4 redHighlight = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+      tf_data[b] = glm::mix(baseBirth, redHighlight, weight);
+
+      // blend the base TF color with green for the death index
+      glm::vec4 baseDeath = tf_data[d];
+      glm::vec4 greenHighlight = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+      tf_data[d] = glm::mix(baseDeath, greenHighlight, weight);
+  }
+}
+
+ImTextureID WorkContext::load_persistence_diagram_texture(const std::string &filePath)
+{
+  try {
+      persistence_texture_resource = TextureLoader::loadTexture(vmc, vcc, filePath);
+      return reinterpret_cast<ImTextureID>(persistence_texture_resource.descriptorSet);
+  } catch (const std::exception& e) {
+      std::cerr << "Failed to load persistence diagram texture: " << e.what() << std::endl;
+      return (ImTextureID)0;
+  }
+}
+
+void WorkContext::highlight_persistence_pair(const PersistencePair& pair)
+{
+    std::vector<glm::vec4> tf_data;
+    transfer_function.update(persistence_pairs, *ui.getVolume(), tf_data);
+    
+    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.getVolume());
+    
+    // compute the normalized birth and death values and map them to indices in [0, 255]
+    float normalizedBirth = (float(pair.birth) - vol_min) / float(vol_max - vol_min);
+    float normalizedDeath = (float(pair.death) - vol_min) / float(vol_max - vol_min);
+    uint32_t indexBirth = static_cast<uint32_t>(normalizedBirth * 255.0f);
+    uint32_t indexDeath = static_cast<uint32_t>(normalizedDeath * 255.0f);
+    indexBirth = std::clamp(indexBirth, 0u, 255u);
+    indexDeath = std::clamp(indexDeath, 0u, 255u);
+    
+    for (uint32_t i = indexBirth; i <= indexDeath && i < tf_data.size(); ++i)
     {
-        float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
-        if (persistence > maxPersistence)
-            maxPersistence = persistence;
+        tf_data[i] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
     }
-    if (maxPersistence < 1e-6f)
-        maxPersistence = 1.0f;
-
-    // for each filtered pair, compute a weight and blend the highlight into the base TF
-    for (auto &pair : filtered) 
-    {
-        float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
-        float weight = persistence / maxPersistence;
-        weight = glm::clamp(weight, 0.2f, 1.0f);
-
-        // convert birth and death to indices in the transfer function range [0,255]
-        uint32_t b = std::clamp(pair.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-        uint32_t d = std::clamp(pair.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-
-        // blend the base TF color with red for the birth index
-        glm::vec4 baseBirth = tf_data[b];
-        glm::vec4 redHighlight = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-        tf_data[b] = glm::mix(baseBirth, redHighlight, weight);
-
-        // blend the base TF color with green for the death index
-        glm::vec4 baseDeath = tf_data[d];
-        glm::vec4 greenHighlight = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-        tf_data[d] = glm::mix(baseDeath, greenHighlight, weight);
-    }
+    
+    // upload the updated transfer function
+    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+    vmc.logical_device.get().waitIdle();
+    
+    std::cout << "Highlighted persistent pair in range [" << indexBirth << ", " << indexDeath << "]." << std::endl;
 }
 } // namespace ve

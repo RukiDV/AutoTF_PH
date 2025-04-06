@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <limits>
 
-std::pair<uint32_t, uint32_t> compute_min_max_scalar(const Volume& volume) 
+std::pair<uint32_t, uint32_t> TransferFunction::compute_min_max_scalar(const Volume& volume) 
 {
     uint32_t min_value = std::numeric_limits<uint32_t>::max();
     uint32_t max_value = std::numeric_limits<uint32_t>::min();
