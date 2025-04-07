@@ -32,8 +32,8 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_persistence_pairs(&persistence_pairs);
 
   ImTextureID persistence_tex = load_persistence_diagram_texture("output_plots/persistence_diagram.png");
-  ui.setPersistenceTexture(persistence_tex);
-  ui.set_onPairSelected([this](const PersistencePair& pair) 
+  ui.set_persistence_texture(persistence_tex);
+  ui.set_on_pair_selected([this](const PersistencePair& pair) 
   {
       this->highlight_persistence_pair(pair);
   });
@@ -233,7 +233,7 @@ ImTextureID WorkContext::load_persistence_diagram_texture(const std::string &fil
 {
   try {
       persistence_texture_resource = TextureLoader::loadTexture(vmc, vcc, filePath);
-      return reinterpret_cast<ImTextureID>(persistence_texture_resource.descriptorSet);
+      return reinterpret_cast<ImTextureID>(persistence_texture_resource.descriptor_set);
   } catch (const std::exception& e) {
       std::cerr << "Failed to load persistence diagram texture: " << e.what() << std::endl;
       return (ImTextureID)0;
@@ -243,9 +243,9 @@ ImTextureID WorkContext::load_persistence_diagram_texture(const std::string &fil
 void WorkContext::highlight_persistence_pair(const PersistencePair& pair)
 {
     std::vector<glm::vec4> tf_data;
-    transfer_function.update(persistence_pairs, *ui.getVolume(), tf_data);
+    transfer_function.update(persistence_pairs, *ui.get_volume(), tf_data);
     
-    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.getVolume());
+    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
     
     // compute the normalized birth and death values and map them to indices in [0, 255]
     float normalizedBirth = (float(pair.birth) - vol_min) / float(vol_max - vol_min);

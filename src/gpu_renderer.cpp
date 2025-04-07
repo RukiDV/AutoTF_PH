@@ -251,72 +251,6 @@ void debug_print_nodes_at_level(const MergeTree &merge_tree, int targetLevel)
     }
 }
 
-std::vector<PersistencePair> hardcoded_pairs()
-{
-    std::vector<PersistencePair> pairs;
-    pairs.push_back(PersistencePair(10, 30));
-    pairs.push_back(PersistencePair(30, 45));
-    pairs.push_back(PersistencePair(30, 45));
-    pairs.push_back(PersistencePair(45, 60));
-    return pairs;
-}
-
-void update_transfer_function_for_test(TransferFunction* tf, const Volume& volume)
-{
-    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
-
-    for (int i = 0; i < 256; i++)
-    {
-        if (i < 64)
-        {
-            tf_data[i] = glm::vec4(1, 0, 0, 1);
-        } else if (i < 128)
-        {
-            tf_data[i] = glm::vec4(0, 1, 0, 1);
-        } else if (i < 192)
-        {
-            tf_data[i] = glm::vec4(0, 0, 1, 1);
-        } else
-        {
-            tf_data[i] = glm::vec4(1, 1, 0, 1);
-        }
-    }
-    tf->update(hardcoded_pairs(), volume, tf_data);
-}
-
-void printPersistenceStats(const std::vector<PersistencePair>& pairs) {
-    if (pairs.empty()) return;
-    
-    uint32_t minPers = std::numeric_limits<uint32_t>::max();
-    uint32_t maxPers = 0;
-    double sumPers = 0.0;
-    double sumDiag = 0.0;
-    double minDiag = std::numeric_limits<double>::max();
-    double maxDiag = 0.0;
-    double sqrt2 = std::sqrt(2.0);
-
-    for (const auto &p : pairs) {
-        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
-        minPers = std::min(minPers, pers);
-        maxPers = std::max(maxPers, pers);
-        sumPers += pers;
-
-        double diag = (p.death > p.birth ? double(p.death - p.birth) / sqrt2 : 0.0);
-        minDiag = std::min(minDiag, diag);
-        maxDiag = std::max(maxDiag, diag);
-        sumDiag += diag;
-    }
-    double avgPers = sumPers / pairs.size();
-    double avgDiag = sumDiag / pairs.size();
-
-    std::cout << "Persistence stats: min = " << minPers 
-              << ", max = " << maxPers 
-              << ", avg = " << avgPers << std::endl;
-    std::cout << "Diagonal distance stats: min = " << minDiag 
-              << ", max = " << maxDiag 
-              << ", avg = " << avgDiag << std::endl;
-}
-
 int gpu_render(const Volume &volume) 
 {
     AppState app_state;
@@ -341,10 +275,24 @@ int gpu_render(const Volume &volume)
         std::cerr << "Failed to open persistence_pairs.txt for writing!" << std::endl;
     }
 
+    std::string outputFile = "output_plots/persistence_diagram.png";
+    std::string pythonCommand = "python scripts/persistence_diagram.py persistence_pairs.txt " + outputFile;
+    int ret = system(pythonCommand.c_str());
+    if (ret != 0) 
+    {
+         std::cerr << "Python script for persistence diagram failed with error code " << ret << std::endl;
+    } else {
+         std::cout << "Persistence diagram generated successfully." << std::endl;
+    }
+
+    ImTextureID persistenceTex = gpu_context.wc.load_persistence_diagram_texture(outputFile);
+    gpu_context.wc.set_ui_persistence_texture(persistenceTex);
+
     bool quit = false;
     Timer rendering_timer;
     SDL_Event e;
-    while (!quit) {
+    while (!quit)
+    {
         dispatch_pressed_keys(gpu_context, eh, app_state);
         app_state.cam.update();
 
@@ -356,47 +304,32 @@ int gpu_render(const Volume &volume)
             app_state.apply_filtration_mode = false;
         }
 
-        // if the persistence threshold has been updated:
-        if (app_state.apply_persistence_threshold) 
+        if (app_state.apply_persistence_threshold)
         {
             std::vector<PersistencePair> currentFilteredPairs = threshold_cut(raw_pairs, app_state.persistence_threshold);
             std::cout << "Persistence threshold updated to " << app_state.persistence_threshold << ", filtered pairs: " << currentFilteredPairs.size() << std::endl;
-            
-            // rebuild the merge tree from the filtered pairs using a chosen tolerance
             gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(currentFilteredPairs, 2);
-            
-            // extract persistence pairs at the selected target level
             std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(gpu_context.wc.getMergeTree(), app_state.target_level);
-            
-            // update the transfer function accordingly
             gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
-            
             app_state.apply_persistence_threshold = false;
         }
 
-        if (app_state.apply_target_level) 
+        if (app_state.apply_target_level)
         {
             std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(gpu_context.wc.getMergeTree(), app_state.target_level);
             gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
             app_state.apply_target_level = false;
         }
-        
-        if (app_state.apply_histogram_ph_tf) 
+        try
         {
-            gpu_context.wc.update_histogram_ph_tf(volume, app_state.ph_threshold);
-            app_state.apply_histogram_ph_tf = false;
-        }
-        if (app_state.apply_histogram_tf) {
-            gpu_context.wc.update_histogram_tf(volume);
-            app_state.apply_histogram_tf = false;
-        }
-        try {
             gpu_context.wc.draw_frame(app_state);
-        } catch (const vk::OutOfDateKHRError &ex) {
+        } catch (const vk::OutOfDateKHRError &ex)
+        {
             app_state.set_window_extent(gpu_context.wc.recreate_swapchain(app_state.vsync));
         }
 
-        while (SDL_PollEvent(&e)) {
+        while (SDL_PollEvent(&e))
+        {
             if (e.window.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 quit = true;
             eh.dispatch_event(e);
@@ -405,5 +338,4 @@ int gpu_render(const Volume &volume)
     }
     return 0;
 }
-
 

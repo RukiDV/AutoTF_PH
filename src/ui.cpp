@@ -159,10 +159,11 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     if(zoom < 0.1f) zoom = 0.1f;
 
     // define a base size for the diagram
-    ImVec2 base_size = ImVec2(400, 400);
+    ImVec2 base_size = ImVec2(500, 500);
     ImVec2 diagram_size = ImVec2(base_size.x * zoom, base_size.y * zoom);
 
     ImGui::Begin("Persistence Diagram");
+
     if (persistence_texture_ID)
     {
       ImGui::Image(persistence_texture_ID, diagram_size);

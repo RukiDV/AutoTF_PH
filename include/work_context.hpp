@@ -32,36 +32,13 @@ public:
   void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
   void set_transfer_function(const TransferFunction &tf) { transfer_function = tf;}
   MergeTree& getMergeTree() { return merge_tree; }
-  
   ImTextureID load_persistence_diagram_texture(const std::string &filePath);
   void highlight_persistence_pair(const PersistencePair& pair);
-  
-  // update the transfer function from a histogram
-  void update_histogram_tf(const Volume &volume)
+  void set_ui_persistence_texture(ImTextureID tex) 
   {
-      std::vector<glm::vec4> tf_data;
-      // call the transfer function's histogram update
-      transfer_function.update_from_histogram(volume, tf_data);
-      // update the GPU buffer for the transfer function
-      storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
-      vmc.logical_device.get().waitIdle();
+      ui.set_persistence_texture(tex);
   }
-
-  // hybrid approach: first histogram-based TF, then refine with PH
-  void update_histogram_ph_tf(const Volume &volume, int ph_threshold)
-  {
-      std::vector<glm::vec4> tf_data;
-      // build histogram-based TF
-      histogram_based_tf(volume, tf_data);
-
-      // refine using persistent homology
-      refine_with_ph(volume, ph_threshold, tf_data);
-
-      // upload to GPU
-      storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
-      vmc.logical_device.get().waitIdle();
-  }
-
+  void set_volume_name(const std::string &name);
 private:
 
 const VulkanMainContext& vmc;
@@ -70,15 +47,14 @@ Storage storage;
 Swapchain swapchain;
 Renderer renderer;
 RayMarcher ray_marcher;
+TextureResource persistence_texture_resource;
 uint32_t read_only_buffer_idx = 0;
 UI ui;
 TransferFunction transfer_function;
 MergeTree merge_tree;
 std::vector<PersistencePair> persistence_pairs;
 std::vector<Synchronization> syncs;
-bool compute_finished = false;
 uint32_t uniform_buffer;
-TextureResource persistence_texture_resource;
 
 void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
 void histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data); 

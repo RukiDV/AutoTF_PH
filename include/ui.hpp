@@ -23,15 +23,15 @@ public:
   void set_transfer_function(TransferFunction* transfer_function);
   void set_volume(const Volume* volume);
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs);
-  void setPersistenceTexture(ImTextureID tex) 
+  void set_persistence_texture(ImTextureID tex) 
   { 
     persistence_texture_ID = tex; 
   }
-  void set_onPairSelected(const std::function<void(const PersistencePair&)>& callback)
+  void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback)
   {
       on_pair_selected = callback;
   }
-  const Volume* getVolume() const { return volume; }
+  const Volume* get_volume() const { return volume; }
 
 private:
   const VulkanMainContext& vmc;
