@@ -1,2 +1,6 @@
 shader/bin
 scripts/.venv
+output_plots/
+images/
+*.ini
+/data
