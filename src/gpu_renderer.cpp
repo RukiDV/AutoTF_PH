@@ -254,15 +254,12 @@ void debug_print_nodes_at_level(const MergeTree &merge_tree, int targetLevel)
 int gpu_render(const Volume &volume) 
 {
     AppState app_state;
-    EventHandler eh;
-    GPUContext gpu_context(app_state, volume);
 
     std::vector<int> filtration_values;
     std::vector<PersistencePair> raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
     std::cout << "Raw persistence pairs: " << raw_pairs.size() << std::endl;
-    
-    gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(raw_pairs, 5);
-    exportFilteredMergeTreeEdges(gpu_context.wc.getMergeTree(), "merge_tree_edges_filtered.txt", 3, 10);
+    MergeTree merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
+    exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
 
     std::ofstream outfile("persistence_pairs.txt");
     if (outfile.is_open()) {
@@ -285,8 +282,8 @@ int gpu_render(const Volume &volume)
          std::cout << "Persistence diagram generated successfully." << std::endl;
     }
 
-    ImTextureID persistenceTex = gpu_context.wc.load_persistence_diagram_texture(outputFile);
-    gpu_context.wc.set_ui_persistence_texture(persistenceTex);
+    EventHandler eh;
+    GPUContext gpu_context(app_state, volume);
 
     bool quit = false;
     Timer rendering_timer;
@@ -300,7 +297,7 @@ int gpu_render(const Volume &volume)
         {
             raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
             std::cout << "Filtration mode updated. New raw persistence pairs: " << raw_pairs.size() << std::endl;
-            gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(raw_pairs, 5);
+            merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
             app_state.apply_filtration_mode = false;
         }
 
@@ -308,15 +305,15 @@ int gpu_render(const Volume &volume)
         {
             std::vector<PersistencePair> currentFilteredPairs = threshold_cut(raw_pairs, app_state.persistence_threshold);
             std::cout << "Persistence threshold updated to " << app_state.persistence_threshold << ", filtered pairs: " << currentFilteredPairs.size() << std::endl;
-            gpu_context.wc.getMergeTree() = build_merge_tree_with_tolerance(currentFilteredPairs, 2);
-            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(gpu_context.wc.getMergeTree(), app_state.target_level);
+            merge_tree = build_merge_tree_with_tolerance(currentFilteredPairs, 2);
+            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
             gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
             app_state.apply_persistence_threshold = false;
         }
 
         if (app_state.apply_target_level)
         {
-            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(gpu_context.wc.getMergeTree(), app_state.target_level);
+            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
             gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
             app_state.apply_target_level = false;
         }

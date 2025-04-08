@@ -31,14 +31,8 @@ public:
   std::vector<float> get_result_values();
   void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
   void set_transfer_function(const TransferFunction &tf) { transfer_function = tf;}
-  MergeTree& getMergeTree() { return merge_tree; }
-  ImTextureID load_persistence_diagram_texture(const std::string &filePath);
+  void load_persistence_diagram_texture(const std::string &filePath);
   void highlight_persistence_pair(const PersistencePair& pair);
-  void set_ui_persistence_texture(ImTextureID tex) 
-  {
-      ui.set_persistence_texture(tex);
-  }
-  void set_volume_name(const std::string &name);
 private:
 
 const VulkanMainContext& vmc;
@@ -47,7 +41,7 @@ Storage storage;
 Swapchain swapchain;
 Renderer renderer;
 RayMarcher ray_marcher;
-TextureResource persistence_texture_resource;
+TextureResourceImGui persistence_texture_resource;
 uint32_t read_only_buffer_idx = 0;
 UI ui;
 TransferFunction transfer_function;

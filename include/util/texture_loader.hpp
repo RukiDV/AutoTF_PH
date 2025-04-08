@@ -1,26 +1,28 @@
 #pragma once
-#include <vulkan/vulkan.hpp>
+#include "vk/common.hpp"
 #include <string>
-#include <memory>
-#include "vk/image.hpp"
+#include "vk/storage.hpp"
+#include "imgui/imgui.h"
 
 namespace ve {
 
 class VulkanMainContext;
 class VulkanCommandContext;
 
-struct TextureResource 
-{
-    std::unique_ptr<Image> texture;
-    VkDescriptorPool descriptor_pool;
-    VkDescriptorSetLayout descriptor_set_layout;
-    VkDescriptorSet descriptor_set;
-};
-
-class TextureLoader 
+class TextureResourceImGui
 {
 public:
-    static TextureResource loadTexture(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const std::string& filePath);
-    static void destroyTextureResource(const VulkanMainContext& vmc, TextureResource& resource);
+    TextureResourceImGui(const VulkanMainContext& vmc, Storage& storage);
+    void construct(const std::string& filePath);
+    void destruct();
+    ImTextureID getImTextureID() const;
+
+private:
+    const VulkanMainContext& vmc;
+    Storage& storage;
+    uint32_t texture;
+    vk::DescriptorPool descriptor_pool;
+    vk::DescriptorSetLayout descriptor_set_layout;
+    vk::DescriptorSet descriptor_set;
 };
 }

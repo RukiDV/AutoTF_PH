@@ -6,7 +6,7 @@
 namespace ve
 {
 WorkContext::WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc)
-  : vmc(vmc), vcc(vcc), storage(vmc, vcc), swapchain(vmc, vcc, storage), renderer(vmc, storage), ray_marcher(vmc, storage), ui(vmc)
+  : vmc(vmc), vcc(vcc), storage(vmc, vcc), swapchain(vmc, vcc, storage), renderer(vmc, storage), ray_marcher(vmc, storage), persistence_texture_resource(vmc, storage), ui(vmc)
 {}
 
 void WorkContext::construct(AppState& app_state, const Volume& volume)
@@ -26,13 +26,11 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   renderer.construct(swapchain.get_render_pass(), app_state);
   ray_marcher.construct(app_state, vcc, volume.resolution);
   ui.construct(vcc, swapchain.get_render_pass(), frames_in_flight);
-  ui.set_merge_tree(&merge_tree);
   ui.set_transfer_function(&transfer_function);
   ui.set_volume(&volume);
   ui.set_persistence_pairs(&persistence_pairs);
 
-  ImTextureID persistence_tex = load_persistence_diagram_texture("output_plots/persistence_diagram.png");
-  ui.set_persistence_texture(persistence_tex);
+  load_persistence_diagram_texture("output_plots/persistence_diagram.png");
   ui.set_on_pair_selected([this](const PersistencePair& pair) 
   {
       this->highlight_persistence_pair(pair);
@@ -45,7 +43,7 @@ void WorkContext::destruct()
   for (auto& sync : syncs) sync.destruct();
   syncs.clear();
   
-  TextureLoader::destroyTextureResource(vmc, persistence_texture_resource);
+  persistence_texture_resource.destruct();
   
   swapchain.destruct();
   renderer.destruct();
@@ -229,14 +227,13 @@ void WorkContext::refine_with_ph(const Volume &volume, int ph_threshold, std::ve
   }
 }
 
-ImTextureID WorkContext::load_persistence_diagram_texture(const std::string &filePath)
+void WorkContext::load_persistence_diagram_texture(const std::string &filePath)
 {
   try {
-      persistence_texture_resource = TextureLoader::loadTexture(vmc, vcc, filePath);
-      return reinterpret_cast<ImTextureID>(persistence_texture_resource.descriptor_set);
+      persistence_texture_resource.construct(filePath);
+      ui.set_persistence_texture(persistence_texture_resource.getImTextureID());
   } catch (const std::exception& e) {
       std::cerr << "Failed to load persistence diagram texture: " << e.what() << std::endl;
-      return (ImTextureID)0;
   }
 }
 
