@@ -13,8 +13,8 @@
 #include <cmath>
 #include <limits>
 
-namespace ve
-{
+namespace ve {
+
 UI::UI(const VulkanMainContext& vmc)
     : vmc(vmc), normalizationFactor(255.0f) // default; will be updated by the WorkContext
 {}
@@ -172,95 +172,91 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     ImGui::Text("'G': Show/Hide UI");
     ImGui::End();
 
-   ImGui::Begin("Persistence Diagram");
+    ImGui::Begin("Persistence Diagram");
 
-    if (persistence_pairs) {
-        std::cout << "DEBUG: persistence_pairs size = " << persistence_pairs->size() << "\n";
-        ImGui::Text("Persistence pairs count: %d", int(persistence_pairs->size()));
-    } else {
-        std::cout << "DEBUG: persistence_pairs pointer is NULL\n";
-        ImGui::Text("Persistence pairs pointer is NULL");
+    // show count
+    int N = persistence_pairs ? int(persistence_pairs->size()) : 0;
+    ImGui::Text("Persistence pairs count: %d", N);
+
+    // controls for zoom & dot size
+    static float diagramZoom = 1.0f;
+    static float dotRadius   = 5.0f;
+    ImGui::SliderFloat("Zoom",      &diagramZoom, 0.1f, 3.0f, "%.2f");
+    ImGui::SliderFloat("Dot Radius",&dotRadius,   1.0f, 20.0f, "%.1f");
+
+    // reserve a square canvas
+    ImVec2 canvasSize = ImVec2(500.0f * diagramZoom, 500.0f * diagramZoom);
+    ImGui::InvisibleButton("canvas", canvasSize);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 origin = ImGui::GetItemRectMin();       // top‑left of our canvas
+
+    // draw diagonal
+    ImU32 diagColor = IM_COL32(200,50,50,200);
+    ImVec2 p_bot_left = ImVec2(origin.x,            origin.y + canvasSize.y);
+    ImVec2 p_top_right = ImVec2(origin.x + canvasSize.x, origin.y);
+    dl->AddLine(p_bot_left, p_top_right, diagColor, 1.0f);
+
+    // draw all dots & record their screen positions, colouring by persistence
+    static std::vector<ImVec2> dotPos;
+    dotPos.clear();
+
+    if (persistence_pairs && !persistence_pairs->empty())
+    {
+        // compute maximum persistence once
+        float maxPers = 0.0f;
+        for (auto &p : *persistence_pairs)
+            maxPers = std::max(maxPers, float(p.death - p.birth));
+        if (maxPers < 1e-6f) maxPers = 1.0f;
+
+        for (size_t i = 0; i < persistence_pairs->size(); ++i)
+        {
+            const auto &p = (*persistence_pairs)[i];
+            float bx = float(p.birth) / 255.0f;
+            float dy = float(p.death) / 255.0f;
+
+            ImVec2 pos {
+            origin.x + bx     * canvasSize.x,
+            origin.y + (1-dy) * canvasSize.y
+            };
+            dotPos.push_back(pos);
+
+            // map persistence to hue [0=red … 0.66=blue]
+            float persNorm = (p.death - p.birth) / maxPers;    // 0…1
+            float hue      = (1.0f - persNorm) * 0.66f;        // invert so high persistence = red
+            float r,g,b;
+            ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
+
+            ImU32 col = IM_COL32(
+                int(r * 255.0f),
+                int(g * 255.0f),
+                int(b * 255.0f),
+                255
+            );
+
+            dl->AddCircleFilled(pos, dotRadius, col);
+        }
+
     }
 
-    const float base_dot_radius = 7.0f;
-
-    // calculate effective dot radius (scale with zoom)
-    ImGuiIO& io = ImGui::GetIO();
-    diagramZoom += io.MouseWheel * 0.1f;
-    if (diagramZoom < 0.1f) 
-        diagramZoom = 0.1f;
-    ImVec2 base_size(500, 500);
-    ImVec2 diagram_size(base_size.x * diagramZoom, base_size.y * diagramZoom);
-    float effective_dot_radius = base_dot_radius * diagramZoom;
-
-    // draw the persistence diagram using an ImageButton for an exact clickable area
-    if (ImGui::ImageButton("Diagram", persistence_texture_ID, diagram_size, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0)))
+    // hit‑test on click
+    if (ImGui::IsItemClicked())
     {
-        ImVec2 image_pos = ImGui::GetItemRectMin();
-        ImVec2 image_max = ImGui::GetItemRectMax();
-        ImVec2 mouse_pos = ImGui::GetMousePos();
-
-        // Check bounds (should be automatically true with ImageButton).
-        if (mouse_pos.x < image_pos.x || mouse_pos.y < image_pos.y ||
-            mouse_pos.x > image_max.x || mouse_pos.y > image_max.y)
+      ImVec2 m = ImGui::GetIO().MousePos;
+      for (int i = 0; i < (int)dotPos.size(); ++i)
+      {
+        float dx = m.x - dotPos[i].x;
+        float dy = m.y - dotPos[i].y;
+        if (dx*dx + dy*dy <= dotRadius*dotRadius)
         {
-            std::cout << "DEBUG: Click is outside the diagram bounds. Ignoring click.\n";
+          // Got it!
+          PersistencePair hit = (*persistence_pairs)[i];
+          std::cout << "DEBUG: Hit persistence pair " << i 
+                    << " = (" << hit.birth << "," << hit.death << ")\n";
+          if (on_pair_selected) 
+            on_pair_selected(hit);
+          break;
         }
-        else
-        {
-            std::cout << "DEBUG: Mouse pos: (" << mouse_pos.x << ", " << mouse_pos.y << ")\n";
-            std::cout << "DEBUG: Diagram bounds: (" << image_pos.x << ", " << image_pos.y 
-                      << ") -> (" << image_max.x << ", " << image_max.y << ")\n";
-            std::cout << "DEBUG: Effective dot radius = " << effective_dot_radius << " px\n";
-
-            bool hitFound = false;
-            PersistencePair selectedPair(0, 0);
-
-            // iterate over all persistence pairs
-            if (persistence_pairs)
-            {
-                int debugCount = 0;
-                for (const PersistencePair& pair : *persistence_pairs)
-                {
-                    float pair_x = image_pos.x + (static_cast<float>(pair.birth) / 255.0f)*diagram_size.x;
-                    float pair_y = image_pos.y + ((255.0f - static_cast<float>(pair.death)) / 255.0f)*diagram_size.y;
-                    
-                    if (debugCount < 3)
-                    {
-                        std::cout << "DEBUG: Candidate " << debugCount 
-                                  << " (birth, death): (" << pair.birth << ", " << pair.death 
-                                  << ") -> Screen Pos (" << pair_x << ", " << pair_y << ")\n";
-                        debugCount++;
-                    }
-                    float dx = mouse_pos.x - pair_x;
-                    float dy = mouse_pos.y - pair_y;
-                    float dist = std::sqrt(dx * dx + dy * dy);
-                    if (dist <= effective_dot_radius)
-                    {
-                        selectedPair = pair;
-                        hitFound = true;
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                std::cout << "DEBUG: persistence_pairs pointer is NULL!\n";
-            }
-
-            if (hitFound)
-            {
-                std::cout << "DEBUG: Selected persistence pair: (birth=" << selectedPair.birth
-                          << ", death=" << selectedPair.death << ") within effective dot radius.\n";
-                if (on_pair_selected)
-                    on_pair_selected(selectedPair);
-            }
-            else
-            {
-                std::cout << "DEBUG: No persistence pair hit (click not within effective dot radius " 
-                          << effective_dot_radius << " px).\n";
-            }
-        }
+      }
     }
 
     ImGui::End();

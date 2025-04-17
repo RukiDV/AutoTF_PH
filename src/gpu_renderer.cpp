@@ -291,10 +291,20 @@ int gpu_render(const Volume &volume)
          std::cout << "Persistence diagram generated successfully." << std::endl;
     }
 
+    std::vector<PersistencePair> displayPairs;
+    displayPairs.reserve(raw_pairs.size());
+    for (auto &p : raw_pairs) {
+        // look up the true scalar
+        uint32_t b = filtration_values[p.birth];
+        uint32_t d = filtration_values[p.death];
+        displayPairs.emplace_back(b, d);
+    }
+
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
 
-    gpu_context.wc.set_persistence_pairs(normalizedPairs, volume);
+    //gpu_context.wc.set_persistence_pairs(normalizedPairs, volume);
+    gpu_context.wc.set_raw_persistence_pairs(displayPairs);
 
     bool quit = false;
     Timer rendering_timer;
