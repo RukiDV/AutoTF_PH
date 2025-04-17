@@ -3,6 +3,7 @@
 #include "vk/common.hpp"
 #include "camera.hpp"
 #include "volume.hpp"
+#include "persistence.hpp"
 
 struct AppState {
 public:
@@ -32,6 +33,9 @@ public:
 
   FiltrationMode filtration_mode = FiltrationMode::LowerStar;
   bool apply_filtration_mode = false;
+
+  bool apply_highlight_update = false;
+  PersistencePair selected_pair;  
 
   vk::Extent2D get_render_extent() const { return render_extent; }
   vk::Extent2D get_window_extent() const { return window_extent; }

@@ -8,6 +8,7 @@
 #include "transfer_function.hpp"
 #include <functional>
 #include "imgui.h"
+#include <vector>
 
 namespace ve
 {
@@ -23,9 +24,9 @@ public:
   void set_transfer_function(TransferFunction* transfer_function);
   void set_volume(const Volume* volume);
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs);
-  void set_persistence_texture(ImTextureID tex) 
-  { 
-    persistence_texture_ID = tex; 
+  void set_persistence_texture(ImTextureID tex)
+  {
+    persistence_texture_ID = tex;
   }
   void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback)
   {
@@ -33,6 +34,8 @@ public:
   }
   const Volume* get_volume() const { return volume; }
 
+  void set_persistent_dots(const std::vector<ImVec2>& dots);
+  void set_normalization_factor(float nf);
 private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
@@ -43,5 +46,8 @@ private:
   ImTextureID persistence_texture_ID = (ImTextureID)0;
   std::function<void(const PersistencePair&)> on_pair_selected;
 
+  std::vector<ImVec2> persistentDots;
+  float normalizationFactor = 255.0f;
+  float diagramZoom = 1.0f;
 };
 } // namespace ve

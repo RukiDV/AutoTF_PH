@@ -260,6 +260,15 @@ int gpu_render(const Volume &volume)
     std::cout << "Raw persistence pairs: " << raw_pairs.size() << std::endl;
     MergeTree merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
     exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
+    std::vector<PersistencePair> defaultPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
+
+    std::vector<PersistencePair> normalizedPairs;
+    for (const PersistencePair &p : defaultPairs)
+    {
+        uint32_t normBirth = filtration_values[p.birth];
+        uint32_t normDeath = filtration_values[p.death];
+        normalizedPairs.push_back(PersistencePair(normBirth, normDeath));
+    }
 
     std::ofstream outfile("persistence_pairs.txt");
     if (outfile.is_open()) {
@@ -284,6 +293,8 @@ int gpu_render(const Volume &volume)
 
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
+
+    gpu_context.wc.set_persistence_pairs(normalizedPairs, volume);
 
     bool quit = false;
     Timer rendering_timer;

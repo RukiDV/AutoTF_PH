@@ -56,7 +56,7 @@ void Renderer::render(vk::CommandBuffer& cb, AppState& app_state, uint32_t read_
   rpbi.renderArea.offset = vk::Offset2D(0, 0);
   rpbi.renderArea.extent = app_state.get_window_extent();
   std::vector<vk::ClearValue> clear_values(2);
-  clear_values[0].color = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+  clear_values[0].color = vk::ClearColorValue(1.0f, 1.0f, 1.0f, 1.0f);
   clear_values[1].depthStencil.depth = 1.0f;
   clear_values[1].depthStencil.stencil = 0;
   rpbi.clearValueCount = clear_values.size();

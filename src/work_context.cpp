@@ -33,7 +33,8 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
   ui.set_on_pair_selected([this](const PersistencePair& pair) 
   {
-      this->highlight_persistence_pair(pair);
+      //this->highlight_persistence_pair(pair);
+        this->isolate_persistence_pair(pair);
   });
 }
 
@@ -153,8 +154,10 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
 }
 
 void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume) {
+    persistence_pairs = pairs; 
+
     std::vector<glm::vec4> tf_data;
-    transfer_function.update(pairs, volume, tf_data);
+    transfer_function.update(persistence_pairs, volume, tf_data);
     std::cout << "Transfer function updated with " << tf_data.size() << " entries." << std::endl;
     storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
     vmc.logical_device.get().waitIdle();
@@ -239,28 +242,81 @@ void WorkContext::load_persistence_diagram_texture(const std::string &filePath)
 
 void WorkContext::highlight_persistence_pair(const PersistencePair& pair)
 {
+    std::cout << "DEBUG: highlight_persistence_pair invoked with (birth=" 
+              << pair.birth << ", death=" << pair.death << ")" << std::endl;
     std::vector<glm::vec4> tf_data;
     transfer_function.update(persistence_pairs, *ui.get_volume(), tf_data);
-    
     auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
     
-    // compute the normalized birth and death values and map them to indices in [0, 255]
     float normalizedBirth = (float(pair.birth) - vol_min) / float(vol_max - vol_min);
     float normalizedDeath = (float(pair.death) - vol_min) / float(vol_max - vol_min);
     uint32_t indexBirth = static_cast<uint32_t>(normalizedBirth * 255.0f);
     uint32_t indexDeath = static_cast<uint32_t>(normalizedDeath * 255.0f);
     indexBirth = std::clamp(indexBirth, 0u, 255u);
     indexDeath = std::clamp(indexDeath, 0u, 255u);
+
+    if (indexBirth == indexDeath) 
+    {
+        const uint32_t delta = 5;
+        indexBirth = (indexBirth >= delta) ? indexBirth - delta : 0;
+        indexDeath = std::min(indexDeath + delta, 255u);
+    }
     
     for (uint32_t i = indexBirth; i <= indexDeath && i < tf_data.size(); ++i)
     {
-        tf_data[i] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
+        tf_data[i] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);  // highlight in yellow
+    }
+    
+    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+    vmc.logical_device.get().waitIdle();
+    
+    std::cout << "DEBUG: Highlighted persistence pair in range [" << indexBirth << ", " << indexDeath << "]." << std::endl;
+}
+
+void WorkContext::isolate_persistence_pair(const PersistencePair& pair)
+{
+    std::cout << "DEBUG: isolate_persistence_pair invoked with (birth=" 
+              << pair.birth << ", death=" << pair.death << ")" << std::endl;
+
+    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
+    std::cout << "Volume scalar range: " << vol_min << " to " << vol_max << std::endl;
+    
+    // normalize the selected pair values
+    float normalizedBirth = (float(pair.birth) - vol_min) / float(vol_max - vol_min);
+    float normalizedDeath = (float(pair.death) - vol_min) / float(vol_max - vol_min);
+    uint32_t indexBirth = static_cast<uint32_t>(normalizedBirth * 255.0f);
+    uint32_t indexDeath = static_cast<uint32_t>(normalizedDeath * 255.0f);
+    indexBirth = std::clamp(indexBirth, 0u, 255u);
+    indexDeath = std::clamp(indexDeath, 0u, 255u);
+
+    std::cout << "DEBUG: Normalized persistence pair maps to indices: " 
+              << indexBirth << " to " << indexDeath << std::endl;
+
+    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+    glm::vec4 visibleColor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); 
+    if (indexBirth == indexDeath) {
+        const uint32_t delta = 15;
+        indexBirth = (indexBirth >= delta) ? indexBirth - delta : 0;
+        indexDeath = std::min(indexDeath + delta, 255u);
+    }
+    
+    for (uint32_t i = indexBirth; i <= indexDeath && i < tf_data.size(); ++i)
+    {
+        tf_data[i] = visibleColor;
     }
     
     // upload the updated transfer function
     storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
     vmc.logical_device.get().waitIdle();
     
-    std::cout << "Highlighted persistent pair in range [" << indexBirth << ", " << indexDeath << "]." << std::endl;
+    std::cout << "DEBUG: Isolated persistence pair in range [" << indexBirth << ", " << indexDeath << "]." << std::endl;
+}
+
+void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
+{
+    raw_persistence_pairs = pairs;
+    // tell the UI to use these for drawing
+    ui.set_persistence_pairs(&raw_persistence_pairs);
 }
 } // namespace ve

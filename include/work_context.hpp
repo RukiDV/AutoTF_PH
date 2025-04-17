@@ -33,6 +33,9 @@ public:
   void set_transfer_function(const TransferFunction &tf) { transfer_function = tf;}
   void load_persistence_diagram_texture(const std::string &filePath);
   void highlight_persistence_pair(const PersistencePair& pair);
+  void isolate_persistence_pair(const PersistencePair& pair);
+  void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
+    std::vector<PersistencePair> raw_persistence_pairs;
 private:
 
 const VulkanMainContext& vmc;
