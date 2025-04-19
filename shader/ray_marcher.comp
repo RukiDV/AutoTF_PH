@@ -153,29 +153,23 @@ vec3 ray_march(Ray ray)
         float density_value = (distance_from_center > inner_radius && distance_from_center < outer_radius) ? 1.0 : -1.0;
 #endif
 
-        if (density_value > 0.5)
-        {
-            // calculate gradient
-            float grad_value = gradient(pos);
-            vec3 color = vec3(grad_value);
+        uint tf_index = uint(density_value * (transfer_function.length()));
+        tf_index = clamp(tf_index, 0, transfer_function.length() - 1);
+        vec4 tf_value = transfer_function[tf_index];
 
-            uint tf_index = uint(density_value * (transfer_function.length()));
-            tf_index = clamp(tf_index, 0, transfer_function.length() - 1);
-            vec4 tf_value = transfer_function[tf_index];
+        float alpha = tf_value.a * step_size;
+        vec3 voxel_color = tf_value.rgb;
 
-            float alpha = tf_value.a * step_size;
-            vec3 voxel_color = tf_value.rgb;
+        // Pre-multiply alpha to the voxel color
+        vec3 pre_multiplied_color = voxel_color * alpha;
 
-            // Pre-multiply alpha to the voxel color
-            vec3 pre_multiplied_color = voxel_color * alpha;
+        accumulated_color += pre_multiplied_color * (1.0 - accumulated_alpha);
+        accumulated_alpha += alpha * (1.0 - accumulated_alpha);
 
-            accumulated_color += pre_multiplied_color * (1.0 - accumulated_alpha);
-            accumulated_alpha += alpha * (1.0 - accumulated_alpha);
-
-            if (accumulated_alpha >= 0.95) break;
-        }
+        if (accumulated_alpha >= 0.95) break;
         t += step_size;
     }
+    accumulated_color += (1.0 - accumulated_alpha) * vec3(1.0, 1.0, 1.0);
 
     return accumulated_color;
 }
