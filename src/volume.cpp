@@ -9,8 +9,12 @@
 #include <cstdint>
 #include <cmath>
 
-[[nodiscard]] int load_volume_from_file(const std::string& header_path, Volume& volume)
+[[nodiscard]] int load_volume_from_file(const std::string& header_filename, Volume& volume)
 {
+    const std::string volume_folder = "data/volume/";
+    if (!std::filesystem::exists(volume_folder)) std::filesystem::create_directories(volume_folder);
+    volume.name = header_filename.substr(0, header_filename.find_last_of('.'));
+    const std::string header_path = volume_folder + header_filename;
     std::ifstream header_file(header_path);
     if (!header_file.is_open()) {
         std::cerr << "Failed to open header file: " << header_path << std::endl;
@@ -147,6 +151,26 @@ Volume create_simple_volume()
             for (uint32_t x = 6; x < 10; ++x)
             {
                 volume.data[idx(x, y, z)] = 255;
+            }
+        }
+    }
+    return volume;
+}
+
+Volume create_gradient_volume()
+{
+    Volume volume;
+    volume.resolution = glm::uvec3(16, 16, 16);
+    uint32_t totalVoxels = 16 * 16 * 16;
+    volume.data.resize(totalVoxels);
+    
+    // Create a gradient in the x-direction.
+    // Voxels at x=0 will have intensity 0 and at x=15 intensity 255.
+    for (uint32_t z = 0; z < 16; ++z) {
+        for (uint32_t y = 0; y < 16; ++y) {
+            for (uint32_t x = 0; x < 16; ++x) {
+                uint8_t intensity = static_cast<uint8_t>((x / 15.0f) * 255);
+                volume.data[z * 16 * 16 + y * 16 + x] = intensity;
             }
         }
     }

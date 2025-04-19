@@ -11,6 +11,7 @@ enum class FiltrationMode {
 
 struct Volume
 {
+  std::string name;
   glm::uvec3 resolution;
   std::vector<uint8_t> data;
 };
@@ -18,3 +19,4 @@ struct Volume
 [[nodiscard]] int load_volume_from_file(const std::string& path, Volume& volume);
 
 Volume create_simple_volume();
+Volume create_gradient_volume();
