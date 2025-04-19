@@ -53,7 +53,7 @@ void TransferFunction::update(const std::vector<PersistencePair>& pairs, const V
         index = std::clamp(index, 0u, 255u);
 
         tf_data[index] = glm::vec4(rgb, 1.0f);
-        std::cout << "Pair (Birth=" << p.birth << ", Death=" << p.death << ", Persistence=" << pers << ") -> Normalized Pers=" << normalizedPers << ", Hue=" << hue << ", Mapped index=" << index << ", Color=(" << rgb.r << ", " << rgb.g << ", " << rgb.b << ", 1)" << std::endl;
+        //std::cout << "Pair (Birth=" << p.birth << ", Death=" << p.death << ", Persistence=" << pers << ") -> Normalized Pers=" << normalizedPers << ", Hue=" << hue << ", Mapped index=" << index << ", Color=(" << rgb.r << ", " << rgb.g << ", " << rgb.b << ", 1)" << std::endl;
     }
 }
 

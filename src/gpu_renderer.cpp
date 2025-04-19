@@ -94,23 +94,6 @@ std::vector<PersistencePair> calculate_persistence_pairs(const Volume &volume, s
     return raw_pairs;
 }
 
-void print_merge_tree(MergeTreeNode *node, int level = 0)
-{
-    if (!node)
-        return;
-    std::string indent(level * 2, ' ');
-    std::cout << indent << "Node ID=" << node->id << ", Birth=" << node->birth << ", Death=" << node->death << ", Depth=" << node->depth;
-    if (node->parent)
-        std::cout << ", Parent=" << node->parent->id;
-    else
-        std::cout << " (root)";
-    std::cout << std::endl;
-    for (auto child : node->children)
-    {
-        print_merge_tree(child, level + 1);
-    }
-}
-
 // export merge tree edges to a file (each line: parent child)
 void exportMergeTreeEdges(const MergeTree &merge_tree, const std::string &filename)
 {
@@ -210,7 +193,7 @@ std::vector<PersistencePair> get_persistence_pairs_for_level(MergeTree& merge_tr
     std::vector<PersistencePair> selectedPairs;
     for (auto n : levelNodes) 
     {
-        std::cout << "Selected PersistencePair: Birth = " << n->birth << ", Death = " << n->death << ", Depth = " << n->depth << std::endl;
+        //std::cout << "Selected PersistencePair: Birth = " << n->birth << ", Death = " << n->death << ", Depth = " << n->depth << std::endl;
         selectedPairs.push_back(PersistencePair(n->birth, n->death));
     }
     return selectedPairs;
@@ -258,6 +241,7 @@ int gpu_render(const Volume &volume)
     std::vector<int> filtration_values;
     std::vector<PersistencePair> raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
     std::cout << "Raw persistence pairs: " << raw_pairs.size() << std::endl;
+    
     MergeTree merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
     exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
     std::vector<PersistencePair> defaultPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
@@ -271,13 +255,16 @@ int gpu_render(const Volume &volume)
     }
 
     std::ofstream outfile("persistence_pairs.txt");
-    if (outfile.is_open()) {
-        for (const auto &pair : raw_pairs) {
+    if (outfile.is_open())
+    {
+        for (const auto &pair : raw_pairs)
+        {
             outfile << filtration_values[pair.birth] << " " << filtration_values[pair.death] << "\n";
         }
         outfile.close();
         std::cout << "Persistence pairs saved to persistence_pairs.txt" << std::endl;
-    } else {
+    } else
+    {
         std::cerr << "Failed to open persistence_pairs.txt for writing!" << std::endl;
     }
 
@@ -286,9 +273,9 @@ int gpu_render(const Volume &volume)
     int ret = system(pythonCommand.c_str());
     if (ret != 0) 
     {
-         std::cerr << "Python script for persistence diagram failed with error code " << ret << std::endl;
+        std::cerr << "Python script for persistence diagram failed with error code " << ret << std::endl;
     } else {
-         std::cout << "Persistence diagram generated successfully." << std::endl;
+        std::cout << "Persistence diagram generated successfully." << std::endl;
     }
 
     std::vector<PersistencePair> displayPairs;

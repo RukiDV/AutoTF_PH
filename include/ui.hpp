@@ -20,34 +20,32 @@ public:
   void destruct();
   void draw(vk::CommandBuffer& cb, AppState& app_state);
 
-  void set_merge_tree(MergeTree* merge_tree);
   void set_transfer_function(TransferFunction* transfer_function);
   void set_volume(const Volume* volume);
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs);
-  void set_persistence_texture(ImTextureID tex)
-  {
-    persistence_texture_ID = tex;
-  }
-  void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback)
-  {
-      on_pair_selected = callback;
-  }
+  void set_persistence_texture(ImTextureID tex);
+  void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback);
+  
   const Volume* get_volume() const { return volume; }
 
-  void set_persistent_dots(const std::vector<ImVec2>& dots);
-  void set_normalization_factor(float nf);
 private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
   MergeTree* merge_tree = nullptr;
   TransferFunction* transfer_function = nullptr;
   const Volume* volume = nullptr;
-  const std::vector<PersistencePair>* persistence_pairs = nullptr;
   ImTextureID persistence_texture_ID = (ImTextureID)0;
   std::function<void(const PersistencePair&)> on_pair_selected;
 
-  std::vector<ImVec2> persistentDots;
-  float normalizationFactor = 255.0f;
-  float diagramZoom = 1.0f;
+  float normalization_factor = 255.0f;
+  const std::vector<PersistencePair>* persistence_pairs = nullptr;
+  bool cache_dirty = true;
+  bool show_dots = true;
+  int max_points_to_show = 0;
+  float diagram_zoom = 1.0f;
+  float marker_size = 2.0f;
+  std::vector<double> xs, ys;
+  std::vector<float > pers;
+  std::vector<ImVec2> dot_pos;
 };
 } // namespace ve
