@@ -21,7 +21,7 @@ void MergeTree::add_node(uint32_t id, uint32_t birth, uint32_t death)
     } else 
     {
         nodes[id] = new MergeTreeNode(id, birth, death);
-        std::cout << "Added Node ID=" << id << ", Birth=" << birth << ", Death=" << death << std::endl;
+        //std::cout << "Added Node ID=" << id << ", Birth=" << birth << ", Death=" << death << std::endl;
         // update root: choose the node with the smallest birth
         if (!root || birth < root->birth) 
         {
@@ -55,7 +55,7 @@ void MergeTree::union_nodes(uint32_t idA, uint32_t idB)
     child->parent = parent;
     child->depth = parent->depth + 1;
     parent->children.push_back(child);
-    std::cout << "Union: Node " << parent->id << " (depth " << parent->depth << ") absorbs node " << child->id << " (depth " << child->depth << ")" << std::endl;
+    //std::cout << "Union: Node " << parent->id << " (depth " << parent->depth << ") absorbs node " << child->id << " (depth " << child->depth << ")" << std::endl;
 }
 
 // directly attach death node to birth node without find/path compression
@@ -71,7 +71,7 @@ void MergeTree::chain_union(uint32_t birth_id, uint32_t death_id)
     deathNode->parent = birthNode;
     deathNode->depth = birthNode->depth + 1;
     birthNode->children.push_back(deathNode);
-    std::cout << "Chain Union: Node " << birthNode->id << " (depth " << birthNode->depth << ") absorbs node " << deathNode->id << " (depth " << deathNode->depth << ")" << std::endl;
+    //std::cout << "Chain Union: Node " << birthNode->id << " (depth " << birthNode->depth << ") absorbs node " << deathNode->id << " (depth " << deathNode->depth << ")" << std::endl;
 }
 
 MergeTreeNode* MergeTree::get_root() const
