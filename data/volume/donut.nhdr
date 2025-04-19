@@ -1,7 +1,7 @@
 NRRD0005
 type: uint8
 dimension: 3
-sizes: 256 256 256
+sizes: 64 64 64
 encoding: raw
 data file: donut.raw
 space directions: (1,0,0) (0,1,0) (0,0,1)
