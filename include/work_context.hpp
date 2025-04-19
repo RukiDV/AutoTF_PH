@@ -16,6 +16,7 @@
 #include "volume.hpp"
 #include "gpu_renderer.hpp"
 #include "util/texture_loader.hpp"
+#include "vk/device_timer.hpp"
 
 namespace ve {
 
@@ -51,6 +52,7 @@ TransferFunction transfer_function;
 MergeTree merge_tree;
 std::vector<PersistencePair> persistence_pairs;
 std::vector<Synchronization> syncs;
+std::vector<DeviceTimer> device_timers;
 uint32_t uniform_buffer;
 
 void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);

@@ -2,6 +2,7 @@
 #include <cstdint>
 #include "vk/common.hpp"
 #include "camera.hpp"
+#include "vk/device_timer.hpp"
 #include "volume.hpp"
 #include "persistence.hpp"
 
@@ -10,6 +11,7 @@ public:
   Camera cam;
   uint32_t current_frame = 0;
   uint32_t total_frames = 0;
+  std::array<float, ve::DeviceTimer::TIMER_COUNT> device_timings;
   bool vsync = true;
   bool show_ui = true;
   float time_diff = 0.000001f;

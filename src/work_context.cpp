@@ -21,6 +21,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   for (uint32_t i = 0; i < frames_in_flight; ++i)
   {
     syncs.emplace_back(vmc.logical_device.get());
+		device_timers.emplace_back(vmc);
   }
   const glm::uvec2 resolution(app_state.get_render_extent().width, app_state.get_render_extent().height);
   renderer.construct(swapchain.get_render_pass(), app_state);
@@ -31,10 +32,9 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_persistence_pairs(&persistence_pairs);
 
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
-  ui.set_on_pair_selected([this](const PersistencePair& pair) 
-  {
-      //this->highlight_persistence_pair(pair);
-        this->isolate_persistence_pair(pair);
+  ui.set_on_pair_selected([this](const PersistencePair& pair) {
+    //this->highlight_persistence_pair(pair);
+    this->isolate_persistence_pair(pair);
   });
 }
 
@@ -42,10 +42,9 @@ void WorkContext::destruct()
 {
   vmc.logical_device.get().waitIdle();
   for (auto& sync : syncs) sync.destruct();
+  for (auto& device_timer : device_timers) device_timer.destruct();
   syncs.clear();
-  
   persistence_texture_resource.destruct();
-  
   swapchain.destruct();
   renderer.destruct();
   ray_marcher.destruct();
@@ -63,6 +62,15 @@ void WorkContext::draw_frame(AppState &app_state)
 {
   syncs[app_state.current_frame].wait_for_fence(Synchronization::F_RENDER_FINISHED);
   syncs[app_state.current_frame].reset_fence(Synchronization::F_RENDER_FINISHED);
+  if (app_state.total_frames > frames_in_flight)
+	{
+    if (app_state.current_frame == 0)
+    {
+      // update device timers
+      for (int i = 0; i < DeviceTimer::TIMER_COUNT; i++) app_state.device_timings[i] = device_timers[app_state.current_frame].get_result_by_idx(i);
+    }
+	}
+
   vk::ResultValue<uint32_t> image_idx = vmc.logical_device.get().acquireNextImageKHR(swapchain.get(), uint64_t(-1), syncs[app_state.current_frame].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
   VE_CHECK(image_idx.result, "Failed to acquire next image!");
 
@@ -120,7 +128,10 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
     syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
 
     vk::CommandBuffer& compute_cb = vcc.begin(vcc.compute_cbs[0]);
+    device_timers[app_state.current_frame].reset(compute_cb, {DeviceTimer::VOLUME});
+    device_timers[app_state.current_frame].start(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
     ray_marcher.compute(compute_cb, app_state, read_only_buffer_idx);
+    device_timers[app_state.current_frame].stop(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
     compute_cb.end();
     read_only_buffer_idx = (read_only_buffer_idx + 1) % frames_in_flight;
 
@@ -129,6 +140,7 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
   }
 
   vk::CommandBuffer& graphics_cb = vcc.begin(vcc.graphics_cbs[app_state.current_frame]);
+  device_timers[app_state.current_frame].reset(graphics_cb, {DeviceTimer::UI});
   Image& render_texture = storage.get_image_by_name("render_texture");
   if (render_texture.get_layout() != vk::ImageLayout::eShaderReadOnlyOptimal)
   {
@@ -136,7 +148,9 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
     render_texture.set_layout(vk::ImageLayout::eShaderReadOnlyOptimal);
   }
   renderer.render(graphics_cb, app_state, read_only_buffer_idx, swapchain.get_framebuffer(image_idx), swapchain.get_render_pass().get());
+  device_timers[app_state.current_frame].start(graphics_cb, DeviceTimer::UI, vk::PipelineStageFlagBits::eTopOfPipe);
   if (app_state.show_ui) ui.draw(graphics_cb, app_state);
+  device_timers[app_state.current_frame].stop(graphics_cb, DeviceTimer::UI, vk::PipelineStageFlagBits::eBottomOfPipe);
   graphics_cb.endRenderPass();
   graphics_cb.end();
 

@@ -35,6 +35,7 @@ set(SOURCE_FILES
   src/merge_tree.cpp
   src/threshold_cut.cpp
   src/util/texture_loader.cpp
+  src/vk/device_timer.cpp
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/imgui.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_sdl3.cpp"
   "${PROJECT_SOURCE_DIR}/dependencies/imgui/backends/imgui_impl_vulkan.cpp"
