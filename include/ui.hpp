@@ -25,6 +25,7 @@ public:
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs);
   void set_persistence_texture(ImTextureID tex);
   void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback);
+  void set_on_range_applied(std::function<void(const std::vector<PersistencePair>&)> cb);
   
   const Volume* get_volume() const { return volume; }
 
@@ -36,16 +37,24 @@ private:
   const Volume* volume = nullptr;
   ImTextureID persistence_texture_ID = (ImTextureID)0;
   std::function<void(const PersistencePair&)> on_pair_selected;
+  std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
 
-  float normalization_factor = 255.0f;
-  const std::vector<PersistencePair>* persistence_pairs = nullptr;
   bool cache_dirty = true;
   bool show_dots = true;
+  bool range_active = false;
   int max_points_to_show = 0;
+  float normalization_factor = 255.0f;
   float diagram_zoom = 1.0f;
   float marker_size = 2.0f;
+  float birth_range[2] = { 0.0f, 255.0f};
+  float death_range[2] = { 0.0f, 255.0f};
+  float persistence_range[2] = { 0.0f, 255.0f};
+  float blink_timer = 0.0f;
+  const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<double> xs, ys;
   std::vector<float > pers;
   std::vector<ImVec2> dot_pos;
+  int    selected_idx = -1;      // –1 means “no selection”
+  ImU32  selected_color = IM_COL32(255,0,255,255); // bright pink
 };
 } // namespace ve

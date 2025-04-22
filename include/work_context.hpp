@@ -32,10 +32,10 @@ public:
   void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
   void load_persistence_diagram_texture(const std::string &filePath);
   void highlight_persistence_pair(const PersistencePair& pair);
-  void isolate_persistence_pair(const PersistencePair& pair);
+  void isolate_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
-  private:
   
+private:  
   const VulkanMainContext& vmc;
   VulkanCommandContext& vcc;
   Storage storage;

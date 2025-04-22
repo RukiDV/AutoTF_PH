@@ -97,6 +97,11 @@ void UI::set_on_pair_selected(const std::function<void(const PersistencePair&)>&
     on_pair_selected = callback;
 }
 
+void UI::set_on_range_applied(std::function<void(const std::vector<PersistencePair>&)> cb)
+{ 
+    on_range_applied = std::move(cb);
+}
+
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
     ImGui_ImplVulkan_NewFrame();
@@ -179,6 +184,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         else
         {
             int N = int(persistence_pairs->size());
+            // reset button
             ImGui::Text("Total pairs: %d", N);
 
             // initialize slider to max on first show
@@ -189,13 +195,34 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 first_time = false;
             }
             max_points_to_show = std::min(max_points_to_show, N);
-            static bool show_dots = true;
-
+            if (ImGui::Button("Reset Controls"))
+            {
+                show_dots = true;
+                max_points_to_show = N;
+                birth_range[0] = 0.0f;
+                birth_range[1] = 255.0f;
+                death_range[0] = 0.0f;
+                death_range[1] = 255.0f;
+                persistence_range[0] = 0.0f;
+                persistence_range[1] = 255.0f;
+                diagram_zoom = 1.0f;
+                marker_size = 5.0f;
+                cache_dirty = true;
+                range_active = false;
+            }
+            ImGui::SameLine();
             // controls
             ImGui::Checkbox("Show Dots", &show_dots);
             ImGui::SliderInt("Max Points", &max_points_to_show, 1, N);
+            ImGui::SliderFloat2("Birth Range", birth_range, 0.0f, 255.0f, "%.0f");
+            ImGui::SliderFloat2("Death Range", death_range, 0.0f, 255.0f, "%.0f");
+            ImGui::SliderFloat2( "Persistence Range", persistence_range, 0.0f, 255.0f, "%.0f" );
             ImGui::SliderFloat("Zoom", &diagram_zoom, 0.1f, 3.0f, "%.2f");
             ImGui::SliderFloat("Marker Size",&marker_size, 1.0f, 20.0f, "%.1f");
+
+            ImGuiIO& io = ImGui::GetIO();
+            blink_timer += io.DeltaTime; // accumulate seconds
+            bool blink_on = fmodf(blink_timer, 0.5f) < 0.25f;
 
             // begin ImPlot
             if (ImPlot::BeginPlot("##PD", ImVec2(500 * diagram_zoom, 500 * diagram_zoom)))
@@ -211,6 +238,36 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     diagram_zoom = std::clamp(diagram_zoom + io.MouseWheel * 0.2f, 0.1f, 10.0f);
                 }
 
+                // prepare lists of indices that pass the range and persistence filter
+                std::vector<int> idxs;
+                idxs.reserve(N);
+                for (int i = 0; i < N; ++i)
+                {
+                    const auto &p = (*persistence_pairs)[i];
+                    float birth = float(p.birth);
+                    float death = float(p.death);
+                    float pers  = death - birth;
+                    if( birth  >= birth_range[0]    && birth  <= birth_range[1] &&
+                        death  >= death_range[0]    && death  <= death_range[1] &&
+                        pers   >= persistence_range[0] && pers   <= persistence_range[1] )
+                    {
+                        idxs.push_back(i);
+                        if( idxs.size() >= max_points_to_show ) break;
+                    }
+                }
+                
+                if (ImGui::Button("Apply Range Filter"))
+                {
+                    range_active = true;
+                    std::vector<PersistencePair> filtered;
+                    filtered.reserve(idxs.size());
+                    for (int i : idxs)
+                        filtered.push_back((*persistence_pairs)[i]);
+                    if (on_range_applied)
+                        on_range_applied(filtered);
+                }
+                ImGui::SameLine();
+                
                 // compute some constant pixel padding inside the plot
                 const float pad_px = 10.0f * diagram_zoom;  // 10px on each side
                 ImDrawList* dl = ImPlot::GetPlotDrawList();
@@ -247,16 +304,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     int count = std::min(max_points_to_show, N);
                     dot_pos.clear();
                     dot_pos.reserve(count);
-                    for (int i = 0; i < count; ++i)
+                    for (int k = 0; k < (int)idxs.size(); ++k)
                     {
-                        float fx = float(xs[i]) / 255.0f;
-                        float fy = float(ys[i]) / 255.0f;
-                        // apply padding
-                        ImVec2 pos
-                        {
-                            plot_pos.x + pad_px + fx * inner_w,
-                            plot_pos.y + pad_px + (1 - fy) * inner_h
-                        };
+                        int i = idxs[k];
+                        auto &p = (*persistence_pairs)[i];
+                        float fx = float(p.birth) / 255.0f;
+                        float fy = float(p.death) / 255.0f;
+                        ImVec2 pos = {plot_pos.x + pad_px + fx * inner_w, plot_pos.y + pad_px + (1.0f - fy) * inner_h};
                         dot_pos.push_back(pos);
 
                         // color by persistence (hue mapping)
@@ -266,10 +320,14 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         ImU32 col = IM_COL32(int(r*255), int(g*255), int(b*255), 255);
 
                         dl->AddCircleFilled(pos, marker_size, col);
+                        
+                        // if this was clicked, draw an outline ring
+                        if (k == selected_idx && blink_on)
+                            dl->AddCircle(pos, marker_size + 2.0f, selected_color, 16, 2.0f);
                     }
 
                     // click to select
-                    if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0))
+                    if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0) && !range_active)
                     {
                         ImVec2 m = ImGui::GetIO().MousePos;
                         float best_r2 = marker_size * marker_size;
@@ -285,12 +343,22 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 best_i = i;
                             }
                         }
-                        if (best_i >= 0 && on_pair_selected)
+                        if (best_i >= 0)
+                        {
+                            selected_idx = best_i;
+                            if (on_pair_selected)
                             on_pair_selected((*persistence_pairs)[best_i]);
+                        }
                     }
                 }
                 ImPlot::PopPlotClipRect();
                 ImPlot::EndPlot();
+
+                if (selected_idx >= 0)
+                {
+                    auto &p = (*persistence_pairs)[selected_idx];
+                    ImGui::Text("Selected Pair: (%u , %u)", p.birth, p.death);
+                }
             }
         }
         ImGui::End();

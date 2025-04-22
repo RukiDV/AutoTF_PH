@@ -11,6 +11,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <filesystem>
 
 struct GPUContext 
 {
@@ -238,10 +239,53 @@ int gpu_render(const Volume &volume)
 {
     AppState app_state;
 
+    // decide on a volume‐specific cache path, hash the dimensions
+    std::string cache_base = "cache/";
+    std::string vol_id = std::to_string(volume.resolution.x) + "x" + std::to_string(volume.resolution.y) + "x" + std::to_string(volume.resolution.z);
+    std::string pairs_cache = cache_base + vol_id + "_pairs.bin";
+    std::string filt_cache  = cache_base + vol_id + "_filts.bin";
+    std::vector<PersistencePair> raw_pairs;
     std::vector<int> filtration_values;
-    std::vector<PersistencePair> raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
-    std::cout << "Raw persistence pairs: " << raw_pairs.size() << std::endl;
-    
+
+    // if the cache exists, load it
+    if (std::filesystem::exists(pairs_cache) && std::filesystem::exists(filt_cache))
+    {
+        // load binary cache
+        {
+            std::ifstream in(pairs_cache, std::ios::binary);
+            size_t N;
+            in.read((char*)&N, sizeof(N));
+            raw_pairs.resize(N);
+            in.read((char*)raw_pairs.data(), sizeof(PersistencePair)*N);
+        }
+        {
+            std::ifstream in(filt_cache, std::ios::binary);
+            size_t M;
+            in.read((char*)&M, sizeof(M));
+            filtration_values.resize(M);
+            in.read((char*)filtration_values.data(), sizeof(int)*M);
+        }
+        std::cout << "Loaded " << raw_pairs.size() << " persistence pairs from cache.\n";
+    }
+    else
+    {
+      // do the expensive compute, then write it out for next time
+      raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
+      std::filesystem::create_directories(cache_base);
+      {
+        std::ofstream out(pairs_cache, std::ios::binary);
+        size_t N = raw_pairs.size();
+        out.write((char*)&N, sizeof(N));
+        out.write((char*)raw_pairs.data(), sizeof(PersistencePair)*N);
+      }
+      {
+        std::ofstream out(filt_cache, std::ios::binary);
+        size_t M = filtration_values.size();
+        out.write((char*)&M, sizeof(M));
+        out.write((char*)filtration_values.data(), sizeof(int)*M);
+      }
+      std::cout << "Computed and cached " << raw_pairs.size() << " persistence pairs.\n";
+    }
     MergeTree merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
     exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
     std::vector<PersistencePair> defaultPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);

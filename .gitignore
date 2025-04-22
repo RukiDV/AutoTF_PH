@@ -7,3 +7,4 @@ images/
 persistence_pairs.txt
 merge_tree_edges_filtered.txt
 tmp.txt
+cache/
