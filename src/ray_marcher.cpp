@@ -15,11 +15,11 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   // set up ray marcher buffer
   std::vector<glm::vec3> initial_ray_macher_data(app_state.get_render_extent().width * app_state.get_render_extent().height);
   
-  buffers[RAY_MARCHER_BUFFER_0] = storage.add_buffer("ray_marcher_output_0", initial_ray_macher_data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
+  buffers[RAY_MARCHER_BUFFER_0] = storage.add_buffer("ray_marcher_output_0", initial_ray_macher_data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
   
-  buffers[RAY_MARCHER_BUFFER_1] = storage.add_buffer("ray_marcher_output_1", initial_ray_macher_data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
+  buffers[RAY_MARCHER_BUFFER_1] = storage.add_buffer("ray_marcher_output_1", initial_ray_macher_data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
   
-  buffers[VOLUME_BUFFER] = storage.add_buffer("volume", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
+  buffers[VOLUME_BUFFER] = storage.add_buffer("volume", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 
   //std::vector<glm::vec4> initial_tf_data(128, glm::vec4(1.0, 1.0, 1.0, 0.0));
   //initial_tf_data.resize(256, glm::vec4(1.0, 1.0, 1.0, 1.0));
@@ -29,19 +29,19 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
     float value = i / 255.0f;
     initial_tf_data[i] = glm::vec4(value, value, value, 1.0);
   }
-  buffers[TF_BUFFER] = storage.add_buffer("transfer_function", initial_tf_data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
+  buffers[TF_BUFFER] = storage.add_buffer("transfer_function", initial_tf_data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 
-  buffers[UNIFORM_BUFFER] = storage.add_buffer("ray_marcher_uniform_buffer", sizeof(Camera::Data), vk::BufferUsageFlagBits::eUniformBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
+  buffers[UNIFORM_BUFFER] = storage.add_buffer("ray_marcher_uniform_buffer", sizeof(Camera::Data), vk::BufferUsageFlagBits::eUniformBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
   app_state.cam.update();
   app_state.cam.update_data();
   storage.get_buffer(buffers[UNIFORM_BUFFER]).update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
 
   std::vector<unsigned char> initial_image(app_state.get_render_extent().width * app_state.get_render_extent().height * 4, 0);
 
-  images[RAY_MARCHER_IMAGE] = storage.add_image("ray_marcher_output_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, std::vector<uint32_t>{vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute}, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
+  images[RAY_MARCHER_IMAGE] = storage.add_image("ray_marcher_output_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute | QueueFamilyFlags::Graphics, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
   
   // TODO set buffer size correct
-  buffers[PERSISTENCE_BUFFER] = storage.add_buffer("persistence_buffer", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute);
+  buffers[PERSISTENCE_BUFFER] = storage.add_buffer("persistence_buffer", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 }
 
 void RayMarcher::construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution)
@@ -91,7 +91,7 @@ void RayMarcher::create_pipeline(const AppState& app_state, glm::uvec3 volume_re
   std::array<uint32_t, 3> spec_entries_data{volume_resolution.x, volume_resolution.y, volume_resolution.z};
   vk::SpecializationInfo spec_info(spec_entries.size(), spec_entries.data(), sizeof(uint32_t) * spec_entries_data.size(), spec_entries_data.data());
   ShaderInfo ray_marcher_shader_info = ShaderInfo{"ray_marcher.comp", vk::ShaderStageFlagBits::eCompute, spec_info};
-  pipeline.construct(dsh.get_layouts()[0], ray_marcher_shader_info, 0);
+  pipeline.construct(dsh.get_layout(), ray_marcher_shader_info, 0);
 }
 
 void RayMarcher::create_descriptor_set()

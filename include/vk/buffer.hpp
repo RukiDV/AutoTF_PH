@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "vk/common.hpp"
+#include "vk/queue_families.hpp"
 #include "vk/ve_log.hpp"
 #include "vk/vulkan_command_context.hpp"
 #include "vk/vulkan_main_context.hpp"
@@ -12,28 +13,26 @@ namespace ve
 class Buffer
 {
 public:
-  template<class T, class... Args>
-  Buffer(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const T* data, std::size_t elements, vk::BufferUsageFlags usage_flags, bool device_local, Args... queue_family_indices) : Buffer(vmc, vcc, sizeof(T) * elements, usage_flags, device_local, queue_family_indices...)
+  template<class T>
+  Buffer(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const T* data, std::size_t elements, vk::BufferUsageFlags usage_flags, bool device_local, Queues queues) : Buffer(vmc, vcc, sizeof(T) * elements, usage_flags, device_local, queues)
   {
     element_count = elements;
     update_data(data, elements);
   }
 
-  template<class T, class... Args>
-  Buffer(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const std::vector<T>& data, vk::BufferUsageFlags usage_flags, bool device_local, Args... queue_family_indices) : Buffer(vmc, vcc, data.data(), data.size(), usage_flags, device_local, queue_family_indices...)
+  template<class T>
+  Buffer(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const std::vector<T>& data, vk::BufferUsageFlags usage_flags, bool device_local, Queues queues) : Buffer(vmc, vcc, data.data(), data.size(), usage_flags, device_local, queues)
   {}
 
-  template<class... Args>
-  Buffer(const VulkanMainContext& vmc, VulkanCommandContext& vcc, std::size_t byte_size, vk::BufferUsageFlags usage_flags, bool device_local, Args... queue_family_indices) : vmc(vmc), vcc(vcc), device_local(device_local), byte_size(byte_size)
+  Buffer(const VulkanMainContext& vmc, VulkanCommandContext& vcc, std::size_t byte_size, vk::BufferUsageFlags usage_flags, bool device_local, Queues queues) : vmc(vmc), vcc(vcc), device_local(device_local), byte_size(byte_size)
   {
-    std::vector<uint32_t> queue_family_indices_vec = {queue_family_indices...};
     if (device_local)
     {
-      std::tie(buffer, vmaa) = create_buffer((usage_flags | vk::BufferUsageFlagBits::eTransferDst), {}, device_local, queue_family_indices_vec);
+      std::tie(buffer, vmaa) = create_buffer((usage_flags | vk::BufferUsageFlagBits::eTransferDst), {}, device_local, queues);
     }
     else
     {
-      std::tie(buffer, vmaa) = create_buffer(usage_flags, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, device_local, queue_family_indices_vec);
+      std::tie(buffer, vmaa) = create_buffer(usage_flags, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, device_local, queues);
     }
   }
 
@@ -63,7 +62,7 @@ public:
 
     if (device_local)
     {
-      auto [staging_buffer, staging_vmaa] = create_buffer((vk::BufferUsageFlagBits::eTransferSrc), VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, true, {vmc.queue_family_indices.transfer});
+      auto [staging_buffer, staging_vmaa] = create_buffer((vk::BufferUsageFlagBits::eTransferSrc), VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, true, QueueFamilyFlags::Transfer);
       void* mapped_mem;
       vmaMapMemory(vmc.va, staging_vmaa, &mapped_mem);
       memset(mapped_mem, constant, byte_count);
@@ -95,7 +94,7 @@ public:
 
     if (device_local)
     {
-      auto [staging_buffer, staging_vmaa] = create_buffer((vk::BufferUsageFlagBits::eTransferSrc), VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, true, {vmc.queue_family_indices.transfer});
+      auto [staging_buffer, staging_vmaa] = create_buffer((vk::BufferUsageFlagBits::eTransferSrc), VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, true, QueueFamilyFlags::Transfer);
       void* mapped_mem;
       vmaMapMemory(vmc.va, staging_vmaa, &mapped_mem);
       memcpy(mapped_mem, data, byte_count);
@@ -145,7 +144,7 @@ public:
 
     if (device_local)
     {
-      auto [staging_buffer, staging_vmaa] = create_buffer((vk::BufferUsageFlagBits::eTransferDst), VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, false, {vmc.queue_family_indices.transfer});
+      auto [staging_buffer, staging_vmaa] = create_buffer((vk::BufferUsageFlagBits::eTransferDst), VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT, false, QueueFamilyFlags::Transfer);
 
       vk::CommandBuffer& cb = vcc.get_one_time_transfer_buffer();
       vk::BufferCopy copy_region{};
@@ -213,16 +212,17 @@ public:
   void* pNext = nullptr;
 
 private:
-  std::pair<vk::Buffer, VmaAllocation> create_buffer(vk::BufferUsageFlags usage_flags, VmaAllocationCreateFlags vma_flags, bool device_local, const std::vector<uint32_t>& queue_family_indices)
+  std::pair<vk::Buffer, VmaAllocation> create_buffer(vk::BufferUsageFlags usage_flags, VmaAllocationCreateFlags vma_flags, bool device_local, Queues queues)
   {
+    std::vector<uint32_t> queue_indices = vmc.queue_families.get(queues);
     vk::BufferCreateInfo bci{};
     bci.sType = vk::StructureType::eBufferCreateInfo;
     bci.size = byte_size;
     bci.usage = usage_flags;
-    bci.sharingMode = queue_family_indices.size() == 1 ? vk::SharingMode::eExclusive : vk::SharingMode::eConcurrent;
+    bci.sharingMode = queue_indices.size() == 1 ? vk::SharingMode::eExclusive : vk::SharingMode::eConcurrent;
     bci.flags = {};
-    bci.queueFamilyIndexCount = queue_family_indices.size();
-    bci.pQueueFamilyIndices = queue_family_indices.data();
+    bci.queueFamilyIndexCount = queue_indices.size();
+    bci.pQueueFamilyIndices = queue_indices.data();
     VmaAllocationCreateInfo vaci{};
     vaci.usage = device_local ? VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE : VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
     vaci.flags = vma_flags;

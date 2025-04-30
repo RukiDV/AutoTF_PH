@@ -18,10 +18,8 @@ void TextureResourceImGui::construct(const std::string& filePath)
 
     vk::ImageUsageFlags usage_flags = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferSrc;
     
-    std::vector<uint32_t> queue_family_indices = {vmc.queue_family_indices.transfer};
-    
     // Create texture
-    texture = storage.add_image("persistence diagram", pixels, static_cast<uint32_t>(tex_width), static_cast<uint32_t>(tex_height), false, 0, queue_family_indices, usage_flags);
+    texture = storage.add_image("persistence diagram", pixels, static_cast<uint32_t>(tex_width), static_cast<uint32_t>(tex_height), false, 0, QueueFamilyFlags::Transfer, usage_flags);
 
     stbi_image_free(pixels);
 

@@ -1,21 +1,19 @@
 #include "vk/logical_device.hpp"
 
-#include <set>
-
 #include "vk/common.hpp"
+#include "vk/queue_families.hpp"
 #include "vk/ve_log.hpp"
 #include "vk/physical_device.hpp"
 
 namespace ve
 {
-void LogicalDevice::construct(const PhysicalDevice& p_device, const QueueFamilyIndices& queue_family_indices, std::unordered_map<QueueIndex, vk::Queue>& queues)
+void LogicalDevice::construct(const PhysicalDevice& p_device, const QueueFamilies& queue_families, std::unordered_map<QueueIndex, vk::Queue>& queues)
 {
   std::vector<vk::DeviceQueueCreateInfo> qci_s;
-  std::set<uint32_t> unique_queue_families = {queue_family_indices.graphics, queue_family_indices.compute, queue_family_indices.transfer, queue_family_indices.present};
+  std::vector<uint32_t> queue_indices = queue_families.get(QueueFamilyFlags::Graphics | QueueFamilyFlags::Compute | QueueFamilyFlags::Transfer | QueueFamilyFlags::Present);
   float queue_prio = 1.0f;
-  for (int32_t queue_family : unique_queue_families)
+  for (uint32_t queue_family : queue_indices)
   {
-    if (queue_family == uint32_t(-1)) continue;
     vk::DeviceQueueCreateInfo qci{};
     qci.sType = vk::StructureType::eDeviceQueueCreateInfo;
     qci.queueFamilyIndex = queue_family;
@@ -53,10 +51,10 @@ void LogicalDevice::construct(const PhysicalDevice& p_device, const QueueFamilyI
   dci.ppEnabledExtensionNames = p_device.get_extensions().data();
 
   device = p_device.get().createDevice(dci);
-  queues.emplace(QueueIndex::Graphics, device.getQueue(queue_family_indices.graphics, 0));
-  queues.emplace(QueueIndex::Compute, device.getQueue(queue_family_indices.compute, 0));
-  queues.emplace(QueueIndex::Transfer, device.getQueue(queue_family_indices.transfer, 0));
-  if (queue_family_indices.present != uint32_t(-1)) queues.emplace(QueueIndex::Present, device.getQueue(queue_family_indices.present, 0));
+  queues.emplace(QueueIndex::Graphics, device.getQueue(queue_families.get(QueueFamilyFlags::Graphics), 0));
+  queues.emplace(QueueIndex::Compute, device.getQueue(queue_families.get(QueueFamilyFlags::Compute), 0));
+  queues.emplace(QueueIndex::Transfer, device.getQueue(queue_families.get(QueueFamilyFlags::Transfer), 0));
+  if (queue_families.get(QueueFamilyFlags::Present) != -1) queues.emplace(QueueIndex::Present, device.getQueue(queue_families.get(QueueFamilyFlags::Present), 0));
   VULKAN_HPP_DEFAULT_DISPATCHER.init(device);
 }
 

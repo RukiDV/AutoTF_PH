@@ -8,24 +8,12 @@
 
 namespace ve
 {
-struct QueueFamilyIndices {
-  QueueFamilyIndices() : graphics(uint32_t(-1)), compute(uint32_t(-1)), transfer(uint32_t(-1)), present(uint32_t(-1))
-  {}
-  QueueFamilyIndices(uint32_t value) : graphics(value), compute(value), transfer(value), present(value)
-  {}
-  uint32_t graphics;
-  uint32_t compute;
-  uint32_t transfer;
-  uint32_t present;
-};
-
 class PhysicalDevice
 {
 public:
   PhysicalDevice() = default;
   void construct(const Instance& instance, const std::optional<vk::SurfaceKHR>& surface);
   vk::PhysicalDevice get() const;
-  QueueFamilyIndices get_queue_families(const std::optional<vk::SurfaceKHR>& surface) const;
   const std::vector<const char*>& get_extensions() const;
   const std::vector<const char*>& get_missing_extensions();
 

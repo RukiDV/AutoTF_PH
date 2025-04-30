@@ -4,6 +4,7 @@
 
 #include "vk/common.hpp"
 #include "vk/physical_device.hpp"
+#include "vk/queue_families.hpp"
 
 namespace ve
 {
@@ -19,7 +20,7 @@ class LogicalDevice
 {
 public:
   LogicalDevice() = default;
-  void construct(const PhysicalDevice& p_device, const QueueFamilyIndices& queue_family_indices, std::unordered_map<QueueIndex, vk::Queue>& queues);
+  void construct(const PhysicalDevice& p_device, const QueueFamilies& queue_families, std::unordered_map<QueueIndex, vk::Queue>& queues);
   void destruct();
   const vk::Device& get() const;
 

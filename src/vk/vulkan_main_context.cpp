@@ -35,8 +35,8 @@ void VulkanMainContext::construct(const uint32_t width, const uint32_t height)
   instance.construct(window->get_required_extensions());
   surface = window->create_surface(instance.get());
   physical_device.construct(instance, surface);
-  queue_family_indices = physical_device.get_queue_families(surface);
-  logical_device.construct(physical_device, queue_family_indices, queues);
+  queue_families.construct(physical_device.get(), surface);
+  logical_device.construct(physical_device, queue_families, queues);
   create_vma_allocator();
   setup_debug_messenger();
   std::cout << "Created VulkanMainContext" << std::endl;

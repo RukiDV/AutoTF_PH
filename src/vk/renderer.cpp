@@ -8,7 +8,7 @@ Renderer::Renderer(const VulkanMainContext& vmc, Storage& storage) : vmc(vmc), s
 void Renderer::setup_storage(AppState& app_state)
 {
   std::vector<unsigned char> initial_image(app_state.get_render_extent().width * app_state.get_render_extent().height * 4, 0);
-  images[RENDER_IMAGE] = storage.add_image("render_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, std::vector<uint32_t>{vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer, vmc.queue_family_indices.compute}, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
+  images[RENDER_IMAGE] = storage.add_image("render_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, QueueFamilyFlags::Graphics | QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
 }
 
 void Renderer::construct(const RenderPass& render_pass, const AppState& app_state)
@@ -34,7 +34,7 @@ void Renderer::create_pipeline(const RenderPass& render_pass, const AppState& ap
   std::vector<ShaderInfo> render_shader_infos(2);
   render_shader_infos[0] = ShaderInfo{"image.vert", vk::ShaderStageFlagBits::eVertex};
   render_shader_infos[1] = ShaderInfo{"image.frag", vk::ShaderStageFlagBits::eFragment};
-  pipeline.construct(render_pass, dsh.get_layouts()[0], render_shader_infos);
+  pipeline.construct(render_pass, dsh.get_layout(), render_shader_infos);
 }
 
 void Renderer::create_descriptor_set()

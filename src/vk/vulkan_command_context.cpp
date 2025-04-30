@@ -9,9 +9,9 @@ VulkanCommandContext::VulkanCommandContext(const VulkanMainContext& vmc) : vmc(v
 
 void VulkanCommandContext::construct()
 {
-  command_pools[GRAPHICS] = CommandPool(vmc.logical_device.get(), vmc.queue_family_indices.graphics);
-  command_pools[COMPUTE] = CommandPool(vmc.logical_device.get(), vmc.queue_family_indices.compute);
-  command_pools[TRANSFER] = CommandPool(vmc.logical_device.get(), vmc.queue_family_indices.transfer);
+  command_pools[GRAPHICS] = CommandPool(vmc.logical_device.get(), vmc.queue_families.get(QueueFamilyFlags::Graphics));
+  command_pools[COMPUTE] = CommandPool(vmc.logical_device.get(), vmc.queue_families.get(QueueFamilyFlags::Compute));
+  command_pools[TRANSFER] = CommandPool(vmc.logical_device.get(), vmc.queue_families.get(QueueFamilyFlags::Transfer));
   one_time_cbs[GRAPHICS] = command_pools[GRAPHICS].create_command_buffers(1)[0];
   one_time_cbs[COMPUTE] = command_pools[COMPUTE].create_command_buffers(1)[0];
   one_time_cbs[TRANSFER] = command_pools[TRANSFER].create_command_buffers(1)[0];

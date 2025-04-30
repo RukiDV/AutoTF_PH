@@ -52,7 +52,7 @@ void Swapchain::construct(bool vsync, bool full)
   depth_format = choose_depth_format();
   if (full) render_pass.construct(surface_format.format, depth_format);
   swapchain = create_swapchain(vsync);
-  depth_buffer = storage.add_image("depth_buffer", extent.width, extent.height, vk::ImageUsageFlagBits::eDepthStencilAttachment, depth_format, vk::SampleCountFlagBits::e1, false, 0, std::vector<uint32_t>{vmc.queue_family_indices.graphics});
+  depth_buffer = storage.add_image("depth_buffer", extent.width, extent.height, vk::ImageUsageFlagBits::eDepthStencilAttachment, depth_format, vk::SampleCountFlagBits::e1, false, 0, QueueFamilyFlags::Graphics);
   create_framebuffers();
 }
 
@@ -89,9 +89,9 @@ vk::SwapchainKHR Swapchain::create_swapchain(bool vsync)
   sci.presentMode = choose_present_mode(vsync);
   sci.clipped = VK_TRUE;
   sci.oldSwapchain = VK_NULL_HANDLE;
-  if (vmc.queue_family_indices.graphics != vmc.queue_family_indices.present)
+  std::vector<uint32_t> queue_family_indices = vmc.queue_families.get(QueueFamilyFlags::Graphics | QueueFamilyFlags::Present);
+  if (queue_family_indices.size() > 1)
   {
-    std::vector<uint32_t> queue_family_indices = {vmc.queue_family_indices.graphics, vmc.queue_family_indices.present};
     sci.imageSharingMode = vk::SharingMode::eConcurrent;
     sci.queueFamilyIndexCount = queue_family_indices.size();
     sci.pQueueFamilyIndices = queue_family_indices.data();

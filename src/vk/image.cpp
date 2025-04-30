@@ -3,7 +3,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include <cmath>
-#include <fstream>
 #include <filesystem>
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
@@ -13,24 +12,24 @@
 
 namespace ve
 {
-Image::Image(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const unsigned char* data, uint32_t width, uint32_t height, bool use_mip_maps, uint32_t base_mip_map_lvl, const std::vector<uint32_t>& queue_family_indices, vk::ImageUsageFlags usage_flags) : vmc(vmc), w(width), h(height), c(4), byte_size(width * height * 4), mip_levels(use_mip_maps ? std::floor(std::log2(std::max(w, h))) + 1 : 1), layer_count(1)
+Image::Image(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const unsigned char* data, uint32_t width, uint32_t height, bool use_mip_maps, uint32_t base_mip_map_lvl, Queues queues, vk::ImageUsageFlags usage_flags) : vmc(vmc), w(width), h(height), c(4), byte_size(width * height * 4), mip_levels(use_mip_maps ? std::floor(std::log2(std::max(w, h))) + 1 : 1), layer_count(1)
 {
-  create_image_from_data(data, vcc, queue_family_indices, base_mip_map_lvl, usage_flags);
+  create_image_from_data(data, vcc, queues, base_mip_map_lvl, usage_flags);
 }
 
-Image::Image(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const std::vector<std::vector<unsigned char>>& data, uint32_t width, uint32_t height, bool use_mip_maps, uint32_t base_mip_map_lvl, const std::vector<uint32_t>& queue_family_indices, vk::ImageUsageFlags usage_flags, vk::ImageViewType image_view_type) : vmc(vmc), w(width), h(height), c(4), byte_size(width * height * 4 * data.size()), mip_levels(use_mip_maps ? std::floor(std::log2(std::max(w, h))) + 1 : 1), layer_count(data.size())
+Image::Image(const VulkanMainContext& vmc, VulkanCommandContext& vcc, const std::vector<std::vector<unsigned char>>& data, uint32_t width, uint32_t height, bool use_mip_maps, uint32_t base_mip_map_lvl, Queues queues, vk::ImageUsageFlags usage_flags, vk::ImageViewType image_view_type) : vmc(vmc), w(width), h(height), c(4), byte_size(width * height * 4 * data.size()), mip_levels(use_mip_maps ? std::floor(std::log2(std::max(w, h))) + 1 : 1), layer_count(data.size())
 {
   std::vector<unsigned char> copy_data;
   for (const auto& i : data)
   {
     for (const auto& j : i) copy_data.push_back(j);
   }
-  create_image_from_data(copy_data.data(), vcc, queue_family_indices, base_mip_map_lvl, usage_flags, image_view_type);
+  create_image_from_data(copy_data.data(), vcc, queues, base_mip_map_lvl, usage_flags, image_view_type);
 }
 
-Image::Image(const VulkanMainContext& vmc, const VulkanCommandContext& vcc, uint32_t width, uint32_t height, vk::ImageUsageFlags usage, vk::Format format, vk::SampleCountFlagBits sample_count, bool use_mip_maps, uint32_t base_mip_map_lvl, const std::vector<uint32_t>& queue_family_indices, bool image_view_required, uint32_t layer_count) : vmc(vmc), format(format), w(width), h(height), c(4), mip_levels(use_mip_maps ? std::floor(std::log2(std::max(w, h))) + 1 : 1), layer_count(layer_count)
+Image::Image(const VulkanMainContext& vmc, const VulkanCommandContext& vcc, uint32_t width, uint32_t height, vk::ImageUsageFlags usage, vk::Format format, vk::SampleCountFlagBits sample_count, bool use_mip_maps, uint32_t base_mip_map_lvl, Queues queues, bool image_view_required, uint32_t layer_count) : vmc(vmc), format(format), w(width), h(height), c(4), mip_levels(use_mip_maps ? std::floor(std::log2(std::max(w, h))) + 1 : 1), layer_count(layer_count)
 {
-  std::tie(image, vmaa) = create_image(queue_family_indices, usage, sample_count, use_mip_maps, format, vk::Extent3D(w, h, 1), layer_count, vmc.va, !image_view_required);
+  std::tie(image, vmaa) = create_image(queues, usage, sample_count, use_mip_maps, format, vk::Extent3D(w, h, 1), layer_count, vmc.va, !image_view_required);
   layout = vk::ImageLayout::eUndefined;
   if(image_view_required) create_image_view(usage & vk::ImageUsageFlagBits::eDepthStencilAttachment ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor);
 }
@@ -67,8 +66,9 @@ void copy_image(vk::CommandBuffer& cb, vk::Image& src, vk::Image& dst, uint32_t 
   cb.copyImage(src, vk::ImageLayout::eTransferSrcOptimal, dst, vk::ImageLayout::eTransferDstOptimal, 1, &ic);
 }
 
-std::pair<vk::Image, VmaAllocation> Image::create_image(const std::vector<uint32_t>& queue_family_indices, vk::ImageUsageFlags usage, vk::SampleCountFlagBits sample_count, bool use_mip_levels, vk::Format format, vk::Extent3D extent, uint32_t layer_count, const VmaAllocator& va, bool host_visible)
+std::pair<vk::Image, VmaAllocation> Image::create_image(Queues queues, vk::ImageUsageFlags usage, vk::SampleCountFlagBits sample_count, bool use_mip_levels, vk::Format format, vk::Extent3D extent, uint32_t layer_count, const VmaAllocator& va, bool host_visible)
 {
+  std::vector<uint32_t> queue_family_indices = vmc.queue_families.get(queues);
   uint32_t mip_levels = use_mip_levels ? std::floor(std::log2(std::max(extent.width, extent.height))) + 1 : 1;
   if (mip_levels > 1) usage |= vk::ImageUsageFlagBits::eTransferSrc;
   vk::ImageCreateInfo ici{};
@@ -150,9 +150,9 @@ void copy_buffer_to_image(VulkanCommandContext& vcc, const Buffer& buffer, vk::E
   vcc.submit_transfer(cb, true);
 }
 
-void Image::create_image_from_data(const unsigned char* data, VulkanCommandContext& vcc, const std::vector<uint32_t>& queue_family_indices, uint32_t base_mip_map_lvl, vk::ImageUsageFlags usage_flags, vk::ImageViewType image_view_type)
+void Image::create_image_from_data(const unsigned char* data, VulkanCommandContext& vcc, Queues queues, uint32_t base_mip_map_lvl, vk::ImageUsageFlags usage_flags, vk::ImageViewType image_view_type)
 {
-  Buffer buffer(vmc, vcc, data, byte_size, vk::BufferUsageFlagBits::eTransferSrc, false, vmc.queue_family_indices.transfer);
+  Buffer buffer(vmc, vcc, data, byte_size, vk::BufferUsageFlagBits::eTransferSrc, false, QueueFamilyFlags::Transfer);
 
   vk::FormatProperties format_properties = vmc.physical_device.get().getFormatProperties(format);
   if (!(format_properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear))
@@ -173,7 +173,7 @@ void Image::create_image_from_data(const unsigned char* data, VulkanCommandConte
   // create image with original resolution and copy to actual image with reduced resolution
   if (base_mip_map_lvl > 0)
   {
-    auto [tmp_image, tmp_alloc] = create_image({vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer}, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, vk::SampleCountFlagBits::e1, false, format, vk::Extent3D(w, h, 1), layer_count, vmc.va);
+    auto [tmp_image, tmp_alloc] = create_image(QueueFamilyFlags::Graphics | QueueFamilyFlags::Transfer, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, vk::SampleCountFlagBits::e1, false, format, vk::Extent3D(w, h, 1), layer_count, vmc.va);
     move_buffer_to_image(tmp_image, 1);
 
     vk::Offset3D tmp_image_offset(w, h, 1);
@@ -185,7 +185,7 @@ void Image::create_image_from_data(const unsigned char* data, VulkanCommandConte
     // create image with reduced resolution by blitting
     vk::CommandBuffer& cb = vcc.get_one_time_graphics_buffer();
     perform_image_layout_transition(cb, tmp_image, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eTransferRead, 0, 1, layer_count);
-    std::tie(image, vmaa) = create_image(queue_family_indices, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | usage_flags, vk::SampleCountFlagBits::e1, true, format, vk::Extent3D(w, h, 1), layer_count, vmc.va);
+    std::tie(image, vmaa) = create_image(queues, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | usage_flags, vk::SampleCountFlagBits::e1, true, format, vk::Extent3D(w, h, 1), layer_count, vmc.va);
     perform_image_layout_transition(cb, image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, {}, vk::AccessFlagBits::eTransferWrite, 0, mip_levels, layer_count);
     blit_image(cb, tmp_image, 0, tmp_image_offset, image, 0, {w, h, 1}, layer_count);
     vcc.submit_graphics(cb, true);
@@ -195,7 +195,7 @@ void Image::create_image_from_data(const unsigned char* data, VulkanCommandConte
   else
   {
     // layout of image is transitioned in move_buffer_to_image
-    std::tie(image, vmaa) = create_image(queue_family_indices, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | usage_flags, vk::SampleCountFlagBits::e1, true, format, vk::Extent3D(w, h, 1), layer_count, vmc.va);
+    std::tie(image, vmaa) = create_image(queues, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | usage_flags, vk::SampleCountFlagBits::e1, true, format, vk::Extent3D(w, h, 1), layer_count, vmc.va);
     move_buffer_to_image(image, mip_levels);
   }
   buffer.destruct();
@@ -274,7 +274,7 @@ void Image::save_to_file(VulkanCommandContext& vcc)
 {
     vk::ImageLayout old_layout = layout;
     vk::CommandBuffer& cb = vcc.get_one_time_graphics_buffer();
-    auto [dst_image, tmp_vmaa] = create_image(std::vector<uint32_t>{vmc.queue_family_indices.graphics, vmc.queue_family_indices.transfer}, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, vk::SampleCountFlagBits::e1, false, format, vk::Extent3D(w, h, 1), layer_count, vmc.va, true);
+    auto [dst_image, tmp_vmaa] = create_image(QueueFamilyFlags::Graphics | QueueFamilyFlags::Transfer, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, vk::SampleCountFlagBits::e1, false, format, vk::Extent3D(w, h, 1), layer_count, vmc.va, true);
 
     perform_image_layout_transition(cb, dst_image, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eNone, vk::AccessFlagBits::eTransferWrite, 0, 1, 1);
     perform_image_layout_transition(cb, image, old_layout, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eMemoryRead ,vk::AccessFlagBits::eTransferRead, 0, 1, 1);
@@ -309,17 +309,17 @@ void Image::save_to_file(VulkanCommandContext& vcc)
     vk::SubresourceLayout sub_resource_layout;
     vmc.logical_device.get().getImageSubresourceLayout(dst_image, &sub_resource, &sub_resource_layout);
 
-    char* data;
+    unsigned char* data;
     vmaMapMemory(vmc.va, tmp_vmaa, (void**)&data);
     data += sub_resource_layout.offset;
 
     std::vector<vk::Format> bgr_formats = {vk::Format::eB8G8R8A8Srgb, vk::Format::eB8G8R8A8Unorm, vk::Format::eB8G8R8A8Snorm};
     bool color_swizzle = (std::find(bgr_formats.begin(), bgr_formats.end(), format) != bgr_formats.end());
 
-    std::vector<char> image_data(w * h * c);
+    std::vector<unsigned char> image_data(w * h * c);
     for (uint32_t y = 0; y < h; ++y)
     {
-        char* row = data;
+        unsigned char* row = data;
         for (uint32_t x = 0; x < w; ++x)
         {
             if (color_swizzle)

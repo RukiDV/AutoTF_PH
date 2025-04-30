@@ -17,6 +17,7 @@ set(SOURCE_FILES
   src/vk/logical_device.cpp
   src/vk/physical_device.cpp
   src/vk/pipeline.cpp
+  src/vk/queue_families.cpp
   src/vk/renderer.cpp
   src/vk/render_pass.cpp
   src/vk/shader.cpp
