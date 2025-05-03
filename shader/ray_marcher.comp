@@ -22,6 +22,13 @@ struct Ray
     vec3 dir;
 };
 
+struct PushConstants
+{
+    uint display_mode;   // 0 = iso, 1 = volume
+};
+
+layout(push_constant) uniform DisplayMode { PushConstants pc; };
+
 layout(constant_id = 0) const uint volume_width = 1;
 layout(constant_id = 1) const uint volume_height = 1;
 layout(constant_id = 2) const uint volume_depth = 1;
@@ -115,63 +122,88 @@ float trilinear_interpolate(uvec3 volume_pos, vec3 weights)
 vec3 ray_march(Ray ray)
 {
     float t;
-    float step_size = 0.01;
+    const float step_size     = 0.001;
+    const float highlight_step = 0.001;
+    const uint  max_iterations = 2000u;
+
     bool hit = intersect(ray.origin, ray.dir, t);
-
-    vec3 accumulated_color = vec3(0.0, 0.0, 0.0);
-    float accumulated_alpha = 0.0;
-
-    for (uint i = 0; hit && i < 200; i++)
+    if (!hit)
     {
-        vec3 pos = ray.origin + (t + 0.0001) * ray.dir;
-
-#if 1
-        // load value from volume
-        bool in_bounds = all(greaterThanEqual(pos, vec3(-1.0))) && all(lessThanEqual(pos, vec3(1.0)));
-
-        // scale position to volume coordinates
-        uvec3 volume_pos = uvec3((pos + 1.0) * 0.5 * vec3(volume_width, volume_height, volume_depth));
-
-        // left the volume -> done
-        if (!in_bounds) break;
-
-        vec3 texCoord = (pos + 1.0) * 0.5;
-        vec3 volume_pos_f = texCoord * vec3(volume_width, volume_height, volume_depth);
-        uvec3 volume_pos_min = uvec3(floor(volume_pos_f));
-        vec3 weights = fract(volume_pos_f);
-
-        float density_value = trilinear_interpolate(volume_pos_min, weights);
-
-        // without interpolation
-        //uint index = uint(volume_pos.z) * volume_height * volume_width + uint(volume_pos.y) * volume_width + uint(volume_pos.x);
-        //float density_value = float(uint(data[index])) / 255.0; //(length(pos) > 1.0 || length(pos.xy) < 0.5) ? -1.0 : 0.5;
-#else
-        // calculate value from donut function
-        float distance_from_center = length(pos.xy);
-        float outer_radius = 1.0;
-        float inner_radius = 0.6;
-        float density_value = (distance_from_center > inner_radius && distance_from_center < outer_radius) ? 1.0 : -1.0;
-#endif
-
-        uint tf_index = uint(density_value * (transfer_function.length()));
-        tf_index = clamp(tf_index, 0, transfer_function.length() - 1);
-        vec4 tf_value = transfer_function[tf_index];
-
-        float alpha = tf_value.a * step_size;
-        vec3 voxel_color = tf_value.rgb;
-
-        // Pre-multiply alpha to the voxel color
-        vec3 pre_multiplied_color = voxel_color * alpha;
-
-        accumulated_color += pre_multiplied_color * (1.0 - accumulated_alpha);
-        accumulated_alpha += alpha * (1.0 - accumulated_alpha);
-
-        if (accumulated_alpha >= 0.95) break;
-        t += step_size;
+        return vec3(0.0); // black background on miss
     }
-    accumulated_color += (1.0 - accumulated_alpha) * vec3(1.0, 1.0, 1.0);
 
-    return accumulated_color;
+    if (pc.display_mode == 0u)
+    {
+        // iso-surface mode: single-hit early exit
+        for (uint i = 0u; i < max_iterations; ++i)
+        {
+            vec3 pos = ray.origin + (t + 1e-4) * ray.dir;
+            // leave volume?
+            if (any(lessThan(pos, vec3(-1.0))) || any(greaterThan(pos, vec3( 1.0))))
+            {
+                break;
+            }
+
+            // sample scalar with trilinear interpolation
+            vec3 vf = (pos + 1.0) * 0.5 * vec3(volume_width, volume_height, volume_depth);
+            uvec3 p0 = uvec3(floor(vf));
+            vec3  weight = fract(vf);
+            float density = trilinear_interpolate(p0, weight);
+
+            // lookup transfer function
+            uint idx = uint(density * float(transfer_function.length()));
+            idx = clamp(idx, 0u, transfer_function.length()-1u);
+            vec4 tfv = transfer_function[idx];
+
+            // early exit on first non-zero alpha
+            if (tfv.a > 0.0)
+            {
+                // force pure red highlight
+                return vec3(1.0, 0.0, 0.0);
+            }
+            t += step_size;
+        }
+        // no hit = black; but our loop returns as soon as we hit, so reaching here means “missed all” or “exited early”
+        return vec3(0.0);
+
+    } else
+    {
+        // volume-highlight mode: translucent blending
+        vec3  accum_color = vec3(0.0);
+        float accum_alpha = 0.0;
+
+        for (uint i = 0u; i < max_iterations; ++i)
+        {
+            vec3 pos = ray.origin + (t + 1e-4) * ray.dir;
+            if (any(lessThan(pos, vec3(-1.0))) || any(greaterThan(pos, vec3( 1.0))))
+            {
+                break;
+            }
+
+            vec3 vf = (pos + 1.0) * 0.5 * vec3(volume_width, volume_height, volume_depth);
+            uvec3 p0 = uvec3(floor(vf));
+            vec3  weight = fract(vf);
+            float density = trilinear_interpolate(p0, weight);
+
+            uint idx = uint(density * float(transfer_function.length()));
+            idx = clamp(idx, 0u, transfer_function.length()-1u);
+            vec4 tfv = transfer_function[idx];
+
+            // accumulate front-to-back blending
+            float alpha = tfv.a * highlight_step;
+            vec3 pre = tfv.rgb * alpha;
+            accum_color += pre * (1.0 - accum_alpha);
+            accum_alpha += alpha * (1.0 - accum_alpha);
+            if (accum_alpha >= 0.95)
+            {
+                break;
+            }
+            t += step_size;
+        }
+        // composite over black background
+        accum_color += (1.0 - accum_alpha) * vec3(0.0);
+        return accum_color;
+    }
 }
 
 Ray get_camera_ray(ivec2 resolution, ivec2 pixel)

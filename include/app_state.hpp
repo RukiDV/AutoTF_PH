@@ -37,7 +37,10 @@ public:
   bool apply_filtration_mode = false;
 
   bool apply_highlight_update = false;
-  PersistencePair selected_pair;  
+  PersistencePair selected_pair; 
+  
+  // mode for iso-surface = 0 or volume highlight = 1 
+  int display_mode = 1;
 
   vk::Extent2D get_render_extent() const { return render_extent; }
   vk::Extent2D get_window_extent() const { return window_extent; }

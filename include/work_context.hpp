@@ -33,6 +33,7 @@ public:
   void load_persistence_diagram_texture(const std::string &filePath);
   void highlight_persistence_pair(const PersistencePair& pair);
   void isolate_persistence_pairs(const std::vector<PersistencePair>& pairs);
+  void volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
   
 private:  

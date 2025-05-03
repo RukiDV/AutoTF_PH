@@ -312,7 +312,7 @@ int gpu_render(const Volume &volume)
         std::cerr << "Failed to open persistence_pairs.txt for writing!" << std::endl;
     }
 
-    std::string outputFile = "output_plots/persistence_diagram.png";
+    std::string outputFile = "persistence_diagram.png";
     std::string pythonCommand = "python scripts/persistence_diagram.py persistence_pairs.txt " + outputFile;
     int ret = system(pythonCommand.c_str());
     if (ret != 0) 
@@ -336,6 +336,7 @@ int gpu_render(const Volume &volume)
 
     //gpu_context.wc.set_persistence_pairs(normalizedPairs, volume);
     gpu_context.wc.set_raw_persistence_pairs(displayPairs);
+    //gpu_context.wc.set_persistence_pairs(displayPairs, volume);
 
     bool quit = false;
     Timer rendering_timer;

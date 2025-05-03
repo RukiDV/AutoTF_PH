@@ -79,6 +79,9 @@ void RayMarcher::compute(vk::CommandBuffer& cb, AppState& app_state, uint32_t re
 {
   cb.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
   cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline.get_layout(), 0, dsh.get_sets()[read_only_buffer_idx], {});
+  uint32_t mode = app_state.display_mode;
+  pc = {mode};
+  cb.pushConstants(pipeline.get_layout(), vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstants), &pc);
   cb.dispatch((app_state.get_render_extent().width + 31) / 32, (app_state.get_render_extent().height + 31) / 32, 1);
 }
 
@@ -91,7 +94,7 @@ void RayMarcher::create_pipeline(const AppState& app_state, glm::uvec3 volume_re
   std::array<uint32_t, 3> spec_entries_data{volume_resolution.x, volume_resolution.y, volume_resolution.z};
   vk::SpecializationInfo spec_info(spec_entries.size(), spec_entries.data(), sizeof(uint32_t) * spec_entries_data.size(), spec_entries_data.data());
   ShaderInfo ray_marcher_shader_info = ShaderInfo{"ray_marcher.comp", vk::ShaderStageFlagBits::eCompute, spec_info};
-  pipeline.construct(dsh.get_layout(), ray_marcher_shader_info, 0);
+  pipeline.construct(dsh.get_layout(), ray_marcher_shader_info, sizeof(PushConstants));
 }
 
 void RayMarcher::create_descriptor_set()

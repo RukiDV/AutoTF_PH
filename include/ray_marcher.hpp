@@ -47,6 +47,11 @@ private:
   std::array<int32_t, BUFFER_COUNT> buffers;
   std::array<int32_t, IMAGE_COUNT> images;
 
+  struct PushConstants
+  {
+    uint32_t display_mode = 0;
+  } pc;
+
   void create_pipeline(const AppState& app_state, glm::uvec3 volume_resolution);
   void create_descriptor_set();
   void clear_storage_indices();

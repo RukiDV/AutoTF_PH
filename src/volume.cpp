@@ -136,24 +136,26 @@ Volume create_simple_volume()
     Volume volume;
     volume.resolution = glm::uvec3(16, 16, 16);
     uint32_t totalVoxels = 16 * 16 * 16;
-    volume.data.resize(totalVoxels, 64); // outer cube with intensity 64
+    // big outer cube
+    volume.data.assign(totalVoxels, 128u);
 
-    auto idx = [&](uint32_t x, uint32_t y, uint32_t z) -> size_t 
+    auto idx = [&](uint32_t x, uint32_t y, uint32_t z)
     {
-        return z * 16 * 16 + y * 16 + x;
+        return size_t(z) * 16 * 16 + size_t(y) * 16 + size_t(x);
     };
 
-    // smaller inner cube with a higher intensity
-    for (uint32_t z = 6; z < 10; ++z) 
-    {
+    // middle cube
+    for (uint32_t z = 4; z < 12; ++z)
+        for (uint32_t y = 4; y < 12; ++y)
+            for (uint32_t x = 4; x < 12; ++x)
+                volume.data[idx(x,y,z)] = 230u;
+
+    // small cube
+    for (uint32_t z = 6; z < 10; ++z)
         for (uint32_t y = 6; y < 10; ++y)
-        {
             for (uint32_t x = 6; x < 10; ++x)
-            {
-                volume.data[idx(x, y, z)] = 255;
-            }
-        }
-    }
+                volume.data[idx(x,y,z)] = 255u;
+
     return volume;
 }
 

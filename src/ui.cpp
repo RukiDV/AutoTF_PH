@@ -177,6 +177,25 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     // persistence diagram
     ImGui::Begin("Persistence Diagram", nullptr,ImGuiWindowFlags_HorizontalScrollbar);
     {
+        static int displayMode = 1; 
+        // 0 = iso-surface, 1 = volume-highlight
+        ImGui::Text("Display Mode:");
+        ImGui::SameLine();
+        ImGui::RadioButton("Iso-surface", &displayMode, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Volume-highlight", &displayMode, 1);
+        ImGui::Separator();
+
+        app_state.display_mode = displayMode;
+
+        static int lastMode = 1;
+        if (displayMode != lastMode)
+        {
+            range_active = false;
+            selected_idx = -1;
+            lastMode = displayMode;
+        }
+
         if (!persistence_pairs || persistence_pairs->empty())
         {
             ImGui::Text("No persistence pairs to display");
@@ -327,7 +346,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     }
 
                     // click to select
-                    if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0) && !range_active)
+                    if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0) && (displayMode == 0 || !range_active))
                     {
                         ImVec2 m = ImGui::GetIO().MousePos;
                         float best_r2 = marker_size * marker_size;
@@ -346,8 +365,18 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         if (best_i >= 0)
                         {
                             selected_idx = best_i;
-                            if (on_pair_selected)
-                            on_pair_selected((*persistence_pairs)[best_i]);
+                            const PersistencePair &p = (*persistence_pairs)[best_i];
+                            if (displayMode == 0) 
+                            {
+                                // iso-surface
+                                if (on_pair_selected)
+                                    on_pair_selected(p);
+                            } else 
+                            {
+                                // volume highlight: treat single‐pair as a little one‐element range
+                                if (on_range_applied)
+                                    on_range_applied({ p });
+                            }
                         }
                     }
                 }

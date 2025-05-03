@@ -34,11 +34,14 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
   
   ui.set_on_pair_selected([this](const PersistencePair& hit){
-      this->isolate_persistence_pairs({ hit });
+    // iso-surface mode
+    this->isolate_persistence_pairs({ hit });
   });
 
   ui.set_on_range_applied([this](const std::vector<PersistencePair>& range){
-      if (!range.empty()) this->isolate_persistence_pairs(range);
+      if (!range.empty()) 
+          // volume-highlight mode
+          this->volume_highlight_persistence_pairs(range);
   });
 }
 
@@ -293,21 +296,47 @@ void WorkContext::highlight_persistence_pair(const PersistencePair& pair)
 
 void WorkContext::isolate_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {
-    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
-    // build a blank TF
     std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
-    glm::vec4 highlight(1,0,0,1);
+
+    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
+    auto normalize = [&](uint32_t v)
+    {
+        float t = float(v - vol_min) / float(vol_max - vol_min);
+        return uint32_t(std::clamp(t * 255.0f, 0.0f, 255.0f));
+    };
+
+    // highlight exactly the birth iso‐value (and optionally death)
+    glm::vec4 highlight(1.0f, 0.0f, 0.0f, 1.0f);
     for (auto &p : pairs)
     {
-        float nb = (float(p.birth) - vol_min) / (vol_max - vol_min);
-        float nd = (float(p.death) - vol_min) / (vol_max - vol_min);
-        uint32_t i0 = std::clamp<uint32_t>(uint32_t(nb*255.0f), 0,255);
-        uint32_t i1 = std::clamp<uint32_t>(uint32_t(nd*255.0f), 0,255);
-        if (i0 == i1) { i0 = (i0 > 2 ? i0 - 2 : 0); i1 = std::min(i1+2,255u); }
-        for (uint32_t i = i0; i <= i1; ++i)
+        uint32_t bi = normalize(p.birth);
+        tf_data[bi] = highlight;
+
+        // death‐iso
+        uint32_t di = normalize(p.death);
+        tf_data[di] = highlight;
+
+        std::cout << "→ isolating pair (" << p.birth << "," << p.death << ") → TF bin " << bi << "\n";
+    }
+
+    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());
+    vmc.logical_device.get().waitIdle();
+}
+
+void WorkContext::volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs)
+{
+    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+
+    // paint every bin in [birth..death] with a low‐alpha red
+    glm::vec4 highlight(1.0f, 0.0f, 0.0f, 1.0f);
+    for (auto &p : pairs)
+    {
+        uint32_t b = std::clamp(p.birth, 0u, 255u);
+        uint32_t d = std::clamp(p.death, 0u, 255u);
+        for (uint32_t i = b; i <= d; ++i)
             tf_data[i] = highlight;
     }
-    // upload the updated transfer function
+
     storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
     vmc.logical_device.get().waitIdle();
 }
