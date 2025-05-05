@@ -129,7 +129,7 @@ vec3 ray_march(Ray ray)
     bool hit = intersect(ray.origin, ray.dir, t);
     if (!hit)
     {
-        return vec3(0.0); // black background on miss
+        return vec3(1.0); // white background on miss
     }
 
     if (pc.display_mode == 0u)
@@ -159,12 +159,12 @@ vec3 ray_march(Ray ray)
             if (tfv.a > 0.0)
             {
                 // force pure red highlight
-                return vec3(1.0, 0.0, 0.0);
+                return tfv.rgb;
             }
             t += step_size;
         }
-        // no hit = black; but our loop returns as soon as we hit, so reaching here means “missed all” or “exited early”
-        return vec3(0.0);
+        // no hit = white; but our loop returns as soon as we hit, so reaching here means “missed all” or “exited early”
+        return vec3(1.0);
 
     } else
     {
@@ -200,8 +200,8 @@ vec3 ray_march(Ray ray)
             }
             t += step_size;
         }
-        // composite over black background
-        accum_color += (1.0 - accum_alpha) * vec3(0.0);
+        // composite over white background
+        accum_color += (1.0 - accum_alpha) * vec3(1.0);
         return accum_color;
     }
 }

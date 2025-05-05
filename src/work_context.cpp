@@ -43,6 +43,17 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
           // volume-highlight mode
           this->volume_highlight_persistence_pairs(range);
   });
+
+  ui.set_on_multi_selected([this,&app_state](const std::vector<PersistencePair>& hits){
+    if (app_state.display_mode == 0)
+      this->isolate_persistence_pairs(hits);
+    else
+      this->volume_highlight_persistence_pairs(hits);
+  });
+
+  ui.set_on_brush_selected([this](const std::vector<PersistencePair>& hits){
+      this->volume_highlight_persistence_pairs(hits);
+  });
 }
 
 void WorkContext::destruct()

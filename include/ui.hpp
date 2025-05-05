@@ -26,6 +26,8 @@ public:
   void set_persistence_texture(ImTextureID tex);
   void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback);
   void set_on_range_applied(std::function<void(const std::vector<PersistencePair>&)> cb);
+  void set_on_multi_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
+  void set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
   
   const Volume* get_volume() const { return volume; }
 
@@ -54,7 +56,16 @@ private:
   std::vector<double> xs, ys;
   std::vector<float > pers;
   std::vector<ImVec2> dot_pos;
-  int    selected_idx = -1;      // –1 means “no selection”
-  ImU32  selected_color = IM_COL32(255,0,255,255); // bright pink
+  int selected_idx = -1; // –1 means “no selection”
+  ImU32  selected_color = IM_COL32(255,0,255,255);
+
+  std::vector<int> multi_selected_idxs;
+  std::vector<ImU32> multi_selected_cols;
+  bool brush_active = false;
+  ImVec2 brush_start;
+  ImVec2 brush_end;
+
+  std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
+  std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
 };
 } // namespace ve
