@@ -52,6 +52,7 @@ private:
   std::vector<PersistencePair> raw_persistence_pairs;
   std::vector<Synchronization> syncs;
   std::vector<DeviceTimer> device_timers;
+  std::vector<PersistencePair> gradient_persistence_pairs;
 
   void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
   void histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data); 

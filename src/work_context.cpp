@@ -31,6 +31,24 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_volume(&volume);
   ui.set_persistence_pairs(&persistence_pairs);
 
+  Volume grad_vol = compute_gradient_volume(volume);
+
+  // calculate its persistence pairs
+  std::vector<int> grad_filtration_values;
+  auto raw_grad_pairs = calculate_persistence_pairs(grad_vol, grad_filtration_values, app_state.filtration_mode);
+
+  gradient_persistence_pairs.clear();
+  gradient_persistence_pairs.reserve(raw_grad_pairs.size());
+  for (auto &p : raw_grad_pairs)
+  {
+      // look up the true gradient‐magnitude from the filtration array
+      uint32_t b = grad_filtration_values[p.birth];
+      uint32_t d = grad_filtration_values[p.death];
+      gradient_persistence_pairs.emplace_back(b, d);
+  }
+
+  ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
+
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
   
   ui.set_on_pair_selected([this](const PersistencePair& hit){

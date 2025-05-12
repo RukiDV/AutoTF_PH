@@ -131,6 +131,42 @@
     return 0;
 }
 
+// computes central‐difference gradient magnitude, normalizes to [0,255]
+Volume compute_gradient_volume(const Volume& volume)
+{
+    Volume grad = volume;
+    uint32_t X = volume.resolution.x, Y = volume.resolution.y, Z = volume.resolution.z;
+    auto idx = [&](int x, int y, int z){ return size_t(z) * Y * X + size_t(y) * X + size_t(x); };
+
+    // compute raw float magnitudes
+    std::vector<float> mags(X * Y * Z, 0.0f);
+    float max_mag = 0.0f;
+    for (int z = 1; z < int(Z) - 1; ++z)
+    {
+      for (int y = 1; y < int(Y) - 1; ++y)
+      {
+        for (int x = 1; x < int(X)-1; ++x)
+        {
+          float gx = (float(volume.data[idx(x + 1, y, z)]) - float(volume.data[idx(x - 1, y, z)])) * 0.5f;
+          float gy = (float(volume.data[idx(x, y + 1, z)]) - float(volume.data[idx(x, y - 1, z)])) * 0.5f;
+          float gz = (float(volume.data[idx(x, y, z + 1)]) - float(volume.data[idx(x, y, z - 1)])) * 0.5f;
+          float m = std::sqrt(gx * gx + gy * gy + gz * gz);
+          mags[idx(x, y, z)] = m;
+          max_mag = std::max(max_mag, m);
+        }
+      }
+    }
+
+    // normalize into 0..255 integer range
+    if (max_mag < 1e-6f) max_mag = 1.0f;
+    for (size_t i = 0; i < mags.size(); ++i)
+    {
+      uint32_t v = uint32_t(std::clamp((mags[i]/max_mag) * 255.0f, 0.0f, 255.0f));
+      grad.data[i] = v;
+    }
+    return grad;
+}
+
 Volume create_simple_volume()
 {
     Volume volume;

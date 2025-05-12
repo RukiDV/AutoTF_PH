@@ -112,6 +112,11 @@ void UI::set_on_brush_selected(const std::function<void(const std::vector<Persis
     on_brush_selected = cb;
 }
 
+void UI::set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp)
+{
+    gradient_pairs = gp;
+}
+
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
     ImGui_ImplVulkan_NewFrame();
@@ -187,6 +192,36 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     // persistence diagram
     ImGui::Begin("Persistence Diagram", nullptr, ImGuiWindowFlags_HorizontalScrollbar);
     {
+        // switch between scalar and gradient diagrams
+        static int pd_mode = 0;
+        ImGui::Text("Persistence Pairs Mode:"); ImGui::SameLine(); 
+        if (ImGui::RadioButton("Scalar persistence", &pd_mode, 0))
+        {
+            cache_dirty = true;
+            // reset filters
+            birth_range[0] = death_range[0] = persistence_range[0] = 0.0f;
+            birth_range[1] = death_range[1] = persistence_range[1] = 255.0f;
+            max_points_to_show = persistence_pairs ? int(persistence_pairs->size()) : max_points_to_show;
+            multi_selected_idxs.clear();
+            multi_selected_cols.clear();
+            selected_idx = -1;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Gradient persistence", &pd_mode, 1))
+        {
+            cache_dirty = true;
+            // reset filters
+            birth_range[0] = death_range[0] = persistence_range[0] = 0.0f;
+            birth_range[1] = death_range[1] = persistence_range[1] = 255.0f;
+            max_points_to_show = gradient_pairs ? int(gradient_pairs->size()) : max_points_to_show;
+            multi_selected_idxs.clear();
+            multi_selected_cols.clear();
+            selected_idx = -1;
+        }
+
+        // choose which set of pairs to draw
+        const auto* draw_pairs = (pd_mode == 1 && gradient_pairs) ? gradient_pairs : persistence_pairs;
+
         static int displayMode = 1; 
         // 0 = iso-surface, 1 = volume-highlight
         ImGui::Text("Display Mode:");
@@ -208,16 +243,15 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             lastMode = displayMode;
         }
 
-        if (!persistence_pairs || persistence_pairs->empty())
+        if (!draw_pairs || draw_pairs->empty())
         {
             ImGui::Text("No persistence pairs to display");
         }
         else
         {
-            int N = int(persistence_pairs->size());
+            int N = int(draw_pairs->size());
             ImGui::Text("Total pairs: %d", N);
 
-            // initialize slider to max on first show
             static bool first_time = true;
             if (first_time)
             {
@@ -225,16 +259,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 first_time = false;
             }
             max_points_to_show = std::min(max_points_to_show, N);
+
             if (ImGui::Button("Reset Controls"))
             {
                 show_dots = true;
                 max_points_to_show = N;
-                birth_range[0] = 0.0f;
-                birth_range[1] = 255.0f;
-                death_range[0] = 0.0f;
-                death_range[1] = 255.0f;
-                persistence_range[0] = 0.0f;
-                persistence_range[1] = 255.0f;
+                birth_range[0] = death_range[0] = persistence_range[0] = 0.0f;
+                birth_range[1] = death_range[1] = persistence_range[1] = 255.0f;
                 diagram_zoom = 1.0f;
                 marker_size = 5.0f;
                 cache_dirty = true;
@@ -272,10 +303,10 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 idxs.reserve(N);
                 for (int i = 0; i < N; ++i)
                 {
-                    const auto &p = (*persistence_pairs)[i];
+                    const auto &p = (*draw_pairs)[i];
                     float birth = float(p.birth);
                     float death = float(p.death);
-                    float pers  = death - birth;
+                    float pers = death - birth;
                     if (birth  >= birth_range[0] && birth  <= birth_range[1] &&
                         death  >= death_range[0] && death  <= death_range[1] &&
                         pers   >= persistence_range[0] && pers   <= persistence_range[1])
@@ -291,7 +322,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     std::vector<PersistencePair> filtered;
                     filtered.reserve(idxs.size());
                     for (int i : idxs)
-                        filtered.push_back((*persistence_pairs)[i]);
+                        filtered.push_back((*draw_pairs)[i]);
                     if (on_range_applied)
                         on_range_applied(filtered);
                 }
@@ -303,7 +334,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 ImVec2 plot_size = ImPlot::GetPlotSize();
                 float inner_w = plot_size.x - 2 * pad_px;
                 float inner_h = plot_size.y - 2 * pad_px;
-
                 ImPlot::PushPlotClipRect();
 
                 if (show_dots)
@@ -317,52 +347,50 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         float maxP = 0.0f;
                         for (int i = 0; i < N; ++i)
                         {
-                            auto &p = (*persistence_pairs)[i];
+                            auto &p = (*draw_pairs)[i];
                             xs[i] = double(p.birth);
                             ys[i] = double(p.death);
-                            float d = float(p.death - p.birth);
-                            pers[i] = d;
-                            if (d > maxP) maxP = d;
+                            pers[i] = float(p.death - p.birth);
+                            if (pers[i] > maxP) maxP = pers[i];
                         }
                         for (int i = 0; i < N; ++i)
-                            pers[i] /= (maxP > 0 ? maxP : 1.0f);
+                            pers[i] /= (maxP > 0.0f ? maxP : 1.0f);
                         cache_dirty = false;
                     }
 
+                    // draw dots
                     dot_pos.clear();
-                    dot_pos.reserve(std::min(max_points_to_show, N));
+                    dot_pos.reserve(idxs.size());
                     for (int k = 0; k < (int)idxs.size(); ++k)
                     {
                         int i = idxs[k];
-                        auto &p = (*persistence_pairs)[i];
+                        auto &p = (*draw_pairs)[i];
                         float fx = float(p.birth) / 255.0f;
                         float fy = float(p.death) / 255.0f;
-                        ImVec2 pos {plot_pos.x + pad_px + fx * inner_w, plot_pos.y + pad_px + (1.0f - fy) * inner_h};
+                        ImVec2 pos = {plot_pos.x + pad_px + fx * inner_w, plot_pos.y + pad_px + (1.0f - fy) * inner_h};
                         dot_pos.push_back(pos);
 
                         float hue = (1.0f - pers[i]) * 0.66f;
                         float r,g,b;
                         ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
-                        ImU32 col = IM_COL32(int(r*255), int(g*255), int(b*255), 255);
-                        dl->AddCircleFilled(pos, marker_size, col);
+                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(r*255),int(g*255),int(b*255),255));
 
                         if (blink_on && k == selected_idx)
                             dl->AddCircle(pos, marker_size + 2.0f, selected_color, 16, 2.0f);
                     }
 
+                    // brush on drag
                     if (ImPlot::IsPlotHovered() && ImGui::IsMouseDragging(0))
                     {
                         if (!brush_active)
                         {
                             brush_active = true;
-                            // record where the click started
                             brush_start = io.MouseClickedPos[0];
                         }
-                        // update circle radius
                         brush_end = io.MousePos;
                     }
 
-                    // finish brush on left-button release
+                    // finish brush
                     if (brush_active && ImGui::IsMouseReleased(0))
                     {
                         brush_active = false;
@@ -374,8 +402,8 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         {
                             float ddx = dot_pos[i].x - brush_start.x;
                             float ddy = dot_pos[i].y - brush_start.y;
-                            if (ddx*ddx + ddy*ddy <= r2)
-                                brush_sel.push_back((*persistence_pairs)[ idxs[i] ]);
+                            if (ddx * ddx + ddy * ddy <= r2)
+                                brush_sel.push_back((*draw_pairs)[idxs[i]]);
                         }
                         if (!brush_sel.empty() && on_brush_selected)
                             on_brush_selected(brush_sel);
@@ -384,7 +412,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     // click select
                     if (!brush_active && ImPlot::IsPlotHovered() && ImGui::IsMouseReleased(0))
                     {
-                        // treat this as a click
                         ImVec2 m = io.MousePos;
                         float best_r2 = marker_size * marker_size;
                         int best_i = -1;
@@ -392,10 +419,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         {
                             float dx = m.x - dot_pos[i].x;
                             float dy = m.y - dot_pos[i].y;
-                            float d2 = dx * dx + dy * dy;
-                            if (d2 < best_r2)
+                            if (dx * dx + dy * dy < best_r2)
                             {
-                                best_r2 = d2;
+                                best_r2 = dx * dx + dy * dy;
                                 best_i = i;
                             }
                         }
@@ -409,11 +435,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 {
                                     multi_selected_idxs.push_back(best_i);
                                     float hue = float(multi_selected_idxs.size()-1) / 6.0f;
-                                    float r,g,b;
-                                    ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
-                                    multi_selected_cols.push_back(IM_COL32(int(r*255), int(g*255), int(b*255), 255));
-                                }
-                                else
+                                    float r,g,b;ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
+                                    multi_selected_cols.push_back(IM_COL32(int(r * 255), int(g * 255), int(b * 255), 255));
+                                } else
                                 {
                                     size_t idx = std::distance(multi_selected_idxs.begin(), it);
                                     multi_selected_idxs.erase(it);
@@ -423,24 +447,21 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 {
                                     std::vector<PersistencePair> sel;
                                     for (int k : multi_selected_idxs)
-                                        sel.push_back((*persistence_pairs)[ idxs[k] ]);
+                                        sel.push_back((*draw_pairs)[idxs[k]]);
                                     on_multi_selected(sel);
                                 }
-                            }
-                            // plain click, original single‐select behavior
-                            else
+                            } else
                             {
                                 multi_selected_idxs.clear();
                                 multi_selected_cols.clear();
                                 selected_idx = best_i;
-                                PersistencePair p = (*persistence_pairs)[ idxs[best_i] ];
+                                PersistencePair p = (*draw_pairs)[idxs[best_i]];
                                 if (displayMode == 0)
                                 {
                                     if (on_pair_selected) on_pair_selected(p);
-                                }
-                                else
+                                } else
                                 {
-                                    if (on_range_applied)on_range_applied({ p });
+                                    if (on_range_applied) on_range_applied({ p });
                                 }
                             }
                         }
@@ -449,14 +470,12 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     // draw brush overlay
                     if (brush_active)
                     {
-                        float rad = sqrtf(
-                            (brush_end.x - brush_start.x)*(brush_end.x - brush_start.x) +
-                            (brush_end.y - brush_start.y)*(brush_end.y - brush_start.y)
+                        float rad = std::sqrt((brush_end.x - brush_start.x)*(brush_end.x - brush_start.x) + (brush_end.y - brush_start.y)*(brush_end.y - brush_start.y)
                         );
                         dl->AddCircle(brush_start, rad, IM_COL32(255,255,0,150), 64, 2.0f);
                     }
 
-                    // draw multi‐select overlays
+                    // draw multi-select overlays
                     for (size_t m = 0; m < multi_selected_idxs.size(); ++m)
                     {
                         int k = multi_selected_idxs[m];
@@ -471,12 +490,12 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                 if (selected_idx >= 0)
                 {
-                    auto &p = (*persistence_pairs)[selected_idx];
+                    auto &p = (*draw_pairs)[selected_idx];
                     ImGui::Text("Selected Pair: (%u , %u)", p.birth, p.death);
                 }
             }
         }
-        ImGui::End();
+    ImGui::End();
     }
 
     ImGui::EndFrame();

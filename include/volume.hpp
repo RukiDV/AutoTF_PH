@@ -4,7 +4,8 @@
 #include "glm/vec3.hpp"
 #include <stdexcept>
 
-enum class FiltrationMode {
+enum class FiltrationMode
+{
     LowerStar, // use the maximum
     UpperStar // use the minimum
 };
@@ -17,6 +18,6 @@ struct Volume
 };
 
 [[nodiscard]] int load_volume_from_file(const std::string& path, Volume& volume);
-
+Volume compute_gradient_volume(const Volume& volume);
 Volume create_simple_volume();
 Volume create_gradient_volume();

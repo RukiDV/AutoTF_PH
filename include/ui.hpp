@@ -28,6 +28,7 @@ public:
   void set_on_range_applied(std::function<void(const std::vector<PersistencePair>&)> cb);
   void set_on_multi_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
   void set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
+  void set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp);
   
   const Volume* get_volume() const { return volume; }
 
@@ -64,6 +65,8 @@ private:
   bool brush_active = false;
   ImVec2 brush_start;
   ImVec2 brush_end;
+  const std::vector<PersistencePair>* gradient_pairs = nullptr;
+  bool use_gradient_pd = false;
 
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
