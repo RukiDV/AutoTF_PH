@@ -334,18 +334,17 @@ void WorkContext::isolate_persistence_pairs(const std::vector<PersistencePair>& 
         return uint32_t(std::clamp(t * 255.0f, 0.0f, 255.0f));
     };
 
-    // highlight exactly the birth iso‐value (and optionally death)
+    // paint every bin in [birth..death] solid red
     glm::vec4 highlight(1.0f, 0.0f, 0.0f, 1.0f);
     for (auto &p : pairs)
     {
         uint32_t bi = normalize(p.birth);
-        tf_data[bi] = highlight;
-
-        // death‐iso
         uint32_t di = normalize(p.death);
-        tf_data[di] = highlight;
-
-        std::cout << "→ isolating pair (" << p.birth << "," << p.death << ") → TF bin " << bi << "\n";
+        if (bi > di) std::swap(bi, di);
+        for (uint32_t i = bi; i <= di && i < tf_data.size(); ++i)
+        {
+            tf_data[i] = highlight;
+        }
     }
 
     storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());

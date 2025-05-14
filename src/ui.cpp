@@ -192,65 +192,79 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     // persistence diagram
     ImGui::Begin("Persistence Diagram", nullptr, ImGuiWindowFlags_HorizontalScrollbar);
     {
-        // switch between scalar and gradient diagrams
-        static int pd_mode = 0;
-        ImGui::Text("Persistence Pairs Mode:"); ImGui::SameLine(); 
-        if (ImGui::RadioButton("Scalar persistence", &pd_mode, 0))
-        {
-            cache_dirty = true;
-            // reset filters
-            birth_range[0] = death_range[0] = persistence_range[0] = 0.0f;
-            birth_range[1] = death_range[1] = persistence_range[1] = 255.0f;
-            max_points_to_show = persistence_pairs ? int(persistence_pairs->size()) : max_points_to_show;
-            multi_selected_idxs.clear();
-            multi_selected_cols.clear();
-            selected_idx = -1;
-        }
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Gradient persistence", &pd_mode, 1))
-        {
-            cache_dirty = true;
-            // reset filters
-            birth_range[0] = death_range[0] = persistence_range[0] = 0.0f;
-            birth_range[1] = death_range[1] = persistence_range[1] = 255.0f;
-            max_points_to_show = gradient_pairs ? int(gradient_pairs->size()) : max_points_to_show;
-            multi_selected_idxs.clear();
-            multi_selected_cols.clear();
-            selected_idx = -1;
-        }
-
-        // choose which set of pairs to draw
-        const auto* draw_pairs = (pd_mode == 1 && gradient_pairs) ? gradient_pairs : persistence_pairs;
-
-        static int displayMode = 1; 
-        // 0 = iso-surface, 1 = volume-highlight
-        ImGui::Text("Display Mode:");
-        ImGui::SameLine();
-        ImGui::RadioButton("Iso-surface", &displayMode, 0);
-        ImGui::SameLine();
-        ImGui::RadioButton("Volume-highlight", &displayMode, 1);
+        // pick overall visualization
+        static int viewType = 0;
+        const char* viewNames[] = { "Persistence", "Barcode", "Merge Tree" };
+        ImGui::Combo("Visualization", &viewType, viewNames, IM_ARRAYSIZE(viewNames));
         ImGui::Separator();
 
-        app_state.display_mode = displayMode;
+        // pick scalar vs gradient persistence
+        static int pd_mode = 0;
+        ImGui::Text("Persistence Pairs Mode:"); ImGui::SameLine();
+        ImGui::RadioButton("Scalar persistence",  &pd_mode, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Gradient persistence", &pd_mode, 1);
+        ImGui::Separator();
 
-        static int lastMode = 1;
-        if (displayMode != lastMode)
-        {
-            range_active = false;
-            selected_idx = -1;
-            multi_selected_idxs.clear();
-            multi_selected_cols.clear();
-            lastMode = displayMode;
-        }
+        // choose which set to draw
+        const auto* draw_pairs = (pd_mode == 1 && gradient_pairs) ? gradient_pairs : persistence_pairs;
 
         if (!draw_pairs || draw_pairs->empty())
         {
             ImGui::Text("No persistence pairs to display");
+            ImGui::End();
+            return;
         }
-        else
+
+        int N = int(draw_pairs->size());
+        ImGui::Text("Total pairs: %d", N);
+        ImGui::Separator();
+
+        // automatic initial highlight of most persistent feature
+        static bool initial_feature_highlighted = false;
+        if (!initial_feature_highlighted && draw_pairs && !draw_pairs->empty())
         {
-            int N = int(draw_pairs->size());
-            ImGui::Text("Total pairs: %d", N);
+            // find the pair with max persistence (death - birth)
+            auto it = std::max_element(draw_pairs->begin(), draw_pairs->end(), [](auto &a, auto &b)
+            {
+                return (a.death - a.birth) < (b.death - b.birth);
+            });
+            PersistencePair most = *it;
+
+            if (viewType == 0)
+            {
+                if (on_pair_selected) on_pair_selected(most);
+                selected_idx = int(std::distance(draw_pairs->begin(), it));
+            }
+            else if (viewType == 1)
+            {
+                if (on_range_applied) on_range_applied({ most });
+            }
+
+            initial_feature_highlighted = true;
+        }
+
+        // persistence diagram view
+        if (viewType == 0)
+        {
+            // display mode: iso‐surface vs volume‐highlight
+            static int displayMode = 1; 
+            ImGui::Text("Display Mode:"); ImGui::SameLine();
+            ImGui::RadioButton("Iso-surface", &displayMode, 0);ImGui::SameLine();
+            ImGui::RadioButton("Volume-highlight", &displayMode, 1);
+            ImGui::Separator();
+            app_state.display_mode = displayMode;
+
+            // reset when you switch iso vs highlight
+            static int lastMode = 1;
+            if (displayMode != lastMode)
+            {
+                range_active = false;
+                selected_idx = -1;
+                multi_selected_idxs.clear();
+                multi_selected_cols.clear();
+                lastMode = displayMode;
+            }
 
             static bool first_time = true;
             if (first_time)
@@ -294,11 +308,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                 // zoom with mouse wheel
                 if (ImPlot::IsPlotHovered() && io.MouseWheel != 0.0f)
-                {
                     diagram_zoom = std::clamp(diagram_zoom + io.MouseWheel * 0.2f, 0.1f, 10.0f);
-                }
 
-                // prepare lists of indices that pass the range and persistence filter
+                // filter index list
                 std::vector<int> idxs;
                 idxs.reserve(N);
                 for (int i = 0; i < N; ++i)
@@ -307,9 +319,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     float birth = float(p.birth);
                     float death = float(p.death);
                     float pers = death - birth;
-                    if (birth  >= birth_range[0] && birth  <= birth_range[1] &&
-                        death  >= death_range[0] && death  <= death_range[1] &&
-                        pers   >= persistence_range[0] && pers   <= persistence_range[1])
+                    if (birth >= birth_range[0] && birth <= birth_range[1] && death >= death_range[0] && death <= death_range[1] && pers >= persistence_range[0] && pers <= persistence_range[1])
                     {
                         idxs.push_back(i);
                         if ((int)idxs.size() >= max_points_to_show) break;
@@ -328,22 +338,21 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 }
                 ImGui::SameLine();
 
-                const float pad_px = 10.0f * diagram_zoom;
+                // draw dots
+                const float pad = 10.0f * diagram_zoom;
                 ImDrawList* dl = ImPlot::GetPlotDrawList();
-                ImVec2 plot_pos = ImPlot::GetPlotPos();
+                ImVec2 origin = ImPlot::GetPlotPos();
                 ImVec2 plot_size = ImPlot::GetPlotSize();
-                float inner_w = plot_size.x - 2 * pad_px;
-                float inner_h = plot_size.y - 2 * pad_px;
+                float inner_w = plot_size.x - 2 * pad;
+                float inner_h = plot_size.y - 2 * pad;
                 ImPlot::PushPlotClipRect();
 
                 if (show_dots)
                 {
-                    // rebuild cache if needed
+                    // rebuild cache once
                     if (cache_dirty)
                     {
-                        xs.resize(N);
-                        ys.resize(N);
-                        pers.resize(N);
+                        xs.resize(N); ys.resize(N); pers.resize(N);
                         float maxP = 0.0f;
                         for (int i = 0; i < N; ++i)
                         {
@@ -351,23 +360,23 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             xs[i] = double(p.birth);
                             ys[i] = double(p.death);
                             pers[i] = float(p.death - p.birth);
-                            if (pers[i] > maxP) maxP = pers[i];
+                            maxP = std::max(maxP, pers[i]);
                         }
                         for (int i = 0; i < N; ++i)
                             pers[i] /= (maxP > 0.0f ? maxP : 1.0f);
                         cache_dirty = false;
                     }
 
-                    // draw dots
+                    // plot each dot
                     dot_pos.clear();
                     dot_pos.reserve(idxs.size());
                     for (int k = 0; k < (int)idxs.size(); ++k)
                     {
                         int i = idxs[k];
                         auto &p = (*draw_pairs)[i];
-                        float fx = float(p.birth) / 255.0f;
-                        float fy = float(p.death) / 255.0f;
-                        ImVec2 pos = {plot_pos.x + pad_px + fx * inner_w, plot_pos.y + pad_px + (1.0f - fy) * inner_h};
+                        float fx = p.birth / 255.0f;
+                        float fy = p.death / 255.0f;
+                        ImVec2 pos {origin.x + pad + fx * inner_w, origin.y + pad + (1.0f - fy) * inner_h};
                         dot_pos.push_back(pos);
 
                         float hue = (1.0f - pers[i]) * 0.66f;
@@ -495,8 +504,207 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 }
             }
         }
-    ImGui::End();
+        // barcode view
+        else if (viewType == 1)
+        {
+            static bool show_barcodes = true;
+            ImGui::Checkbox("Show Bars", &show_barcodes);
+            ImGui::Separator();
+
+            static float min_persistence = 0.0f;
+            static int top_k = 10;
+            static float barcode_zoom = 1.0f;
+            static int selected_bar_rank = -1;
+            static ImVec2 click_start;
+            static bool rect_select_active = false;
+            static ImVec2 rect_start, rect_end;
+            static std::vector<int> multi_ranks;
+
+            int maxBars = draw_pairs ? int(draw_pairs->size()) : 1;
+
+            if (ImGui::Button("Reset Controls"))
+            {
+                min_persistence = 0.0f;
+                top_k = 1;
+                barcode_zoom = 1.0f;
+                selected_bar_rank = -1;
+                multi_ranks.clear();
+                rect_select_active = false;
+            }
+            ImGui::Separator();
+            ImGui::SliderFloat("Min Persistence", &min_persistence, 0.0f, 255.0f, "%.0f");
+            ImGui::Text("Top K Bars:"); ImGui::SameLine();
+            ImGui::SliderInt("##top_k_slider", &top_k, 1, maxBars);
+            ImGui::SameLine(); ImGui::PushItemWidth(100);
+            ImGui::InputInt("##top_k_input", &top_k);
+            ImGui::PopItemWidth();
+            top_k = std::clamp(top_k, 1, maxBars);
+            ImGui::Separator();
+            ImGui::SliderFloat("Barcode Zoom", &barcode_zoom, 0.1f, 5.0f, "%.2f");
+            ImGui::Text("Scroll to zoom; Ctrl-click or drag to multi-select");
+
+            if (!draw_pairs || draw_pairs->empty())
+            {
+                ImGui::Text("No persistence pairs to display");
+            }
+            else
+            {
+                // collect & sort eligible bars and find max persistence
+                std::vector<std::pair<float,int>> lengths;
+                float maxP = 0.0f;
+                for (int i = 0; i < int(draw_pairs->size()); ++i)
+                {
+                    float L = float((*draw_pairs)[i].death - (*draw_pairs)[i].birth);
+                    if (L >= min_persistence)
+                    {
+                        lengths.emplace_back(L, i);
+                        maxP = std::max(maxP, L);
+                    }
+                }
+                std::sort(lengths.begin(), lengths.end(), [](auto &a, auto &b){ return a.first > b.first; });
+                int display_count = std::min(top_k, int(lengths.size()));
+                ImVec2 plot_size(-1, 300 * barcode_zoom);
+
+                if (ImPlot::BeginPlot("##Barcode", plot_size))
+                {
+                    ImPlot::SetupAxes("Value","Bar Rank");
+                    ImPlot::SetupAxisLimits(ImAxis_X1, 0, 255, ImPlotCond_Always);
+                    ImPlot::SetupAxisLimits(ImAxis_Y1, 0, float(display_count+1), ImPlotCond_Always);
+
+                    ImGuiIO& io = ImGui::GetIO();
+                    if (ImPlot::IsPlotHovered() && io.MouseWheel != 0.0f)
+                        barcode_zoom = std::clamp(barcode_zoom + io.MouseWheel * 0.25f, 0.1f, 10.0f);
+
+                        // record click start
+                        if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                            click_start = io.MouseClickedPos[0];
+
+                        // start marquee
+                        if (ImPlot::IsPlotHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+                        {
+                            rect_select_active = true;
+                            rect_start = click_start;
+                            rect_end   = io.MousePos;
+                        }
+
+                        // on release: marquee or click
+                        if (ImPlot::IsPlotHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                        {
+                            // marquee 
+                            if (rect_select_active)
+                            {
+                                rect_select_active = false;
+                                multi_ranks.clear();
+                                ImVec2 rmin{std::min(rect_start.x, rect_end.x), std::min(rect_start.y, rect_end.y)};
+                                ImVec2 rmax{std::max(rect_start.x, rect_end.x), std::max(rect_start.y, rect_end.y)};
+                                ImVec2 origin = ImPlot::GetPlotPos();
+                                ImVec2 size = ImPlot::GetPlotSize();
+
+                                for (int rank = 0; rank < display_count; ++rank)
+                                {
+                                    int idx = lengths[rank].second;
+                                    auto &p = (*draw_pairs)[idx];
+                                    // screen endpoints
+                                    ImVec2 s0{origin.x + (p.birth  / 255.0f) * size.x, origin.y + (1.0f - float(display_count-rank)/(display_count+1)) * size.y
+                                    };
+                                    ImVec2 s1{origin.x + (p.death  / 255.0f) * size.x, s0.y
+                                    };
+                                    if ((s0.x>=rmin.x && s0.x<=rmax.x && s0.y>=rmin.y && s0.y<=rmax.y) || (s1.x>=rmin.x && s1.x<=rmax.x && s1.y>=rmin.y && s1.y<=rmax.y))
+                                    {
+                                        multi_ranks.push_back(rank);
+                                    }
+                                }
+                                if (!multi_ranks.empty() && on_multi_selected)
+                                {
+                                    std::vector<PersistencePair> sel;
+                                    for (int rank : multi_ranks)
+                                        sel.push_back((*draw_pairs)[ lengths[rank].second ]);
+                                    on_multi_selected(sel);
+                                }
+                            }
+                            // click or ctrl+click
+                            else
+                            {
+                                ImPlotPoint mp = ImPlot::GetPlotMousePos();
+                                int cr = display_count - int(std::round(mp.y));
+                                cr = std::clamp(cr, 0, display_count-1);
+
+                                if (io.KeyCtrl)
+                                {
+                                    auto it = std::find(multi_ranks.begin(), multi_ranks.end(), cr);
+                                    if (it == multi_ranks.end())
+                                        multi_ranks.push_back(cr);
+                                    else
+                                        multi_ranks.erase(it);
+
+                                    if (!multi_ranks.empty() && on_multi_selected)
+                                    {
+                                        std::vector<PersistencePair> sel;
+                                        for (int rank : multi_ranks)
+                                            sel.push_back((*draw_pairs)[ lengths[rank].second ]);
+                                        on_multi_selected(sel);
+                                    }
+                                }
+                                else
+                                {
+                                    multi_ranks.clear();
+                                    selected_bar_rank = cr;
+                                    int idx = lengths[cr].second;
+                                    PersistencePair clicked{ (*draw_pairs)[idx].birth, (*draw_pairs)[idx].death };
+                                    if (on_range_applied)
+                                        on_range_applied({ clicked });
+                                }
+                            }
+                        }
+
+                        // draw marquee rectangle overlay
+                        if (rect_select_active)
+                        {
+                            ImDrawList* dl = ImPlot::GetPlotDrawList();
+                            dl->AddRectFilled(rect_start, rect_end, IM_COL32(255,255,0,80));
+                            dl->AddRect(rect_start, rect_end, IM_COL32(255,255,0,200), 0.0f, 0, 2.0f);
+                        }
+
+                        // draw bars: pink if selected/multi, else persistence hue
+                        if (show_barcodes)
+                        {
+                            for (int rank = 0; rank < display_count; ++rank)
+                            {
+                                int idx = lengths[rank].second;
+                                auto &p = (*draw_pairs)[idx];
+                                double xs[2] = {double(p.birth), double(p.death)};
+                                double ys[2] = {double(display_count - rank), double(display_count - rank)};
+                                char buf[32];
+                                std::snprintf(buf, sizeof(buf), "##bar%02d", idx);
+
+                                bool is_sel = (rank == selected_bar_rank) || (std::find(multi_ranks.begin(), multi_ranks.end(), rank) != multi_ranks.end());
+
+                                ImVec4 col;
+                                if (is_sel)
+                                    col = ImVec4(1.0f, 0.4f, 0.7f, 1.0f); // pink
+                                else {
+                                    float hue = (1.0f - (lengths[rank].first / (maxP>0?maxP:1.0f))) * 0.66f;
+                                    float r,g,b; ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
+                                    col = ImVec4(r,g,b,1.0f);
+                                }
+
+                                float weight = is_sel ? 3.0f * barcode_zoom : 1.5f * barcode_zoom;
+                                ImPlot::SetNextLineStyle(col, weight);
+                                ImPlot::PlotLine(buf, xs, ys, 2);
+                            }
+                        }
+                    ImPlot::EndPlot();
+                }
+            }
+        }
+
+        // merge tree view
+        else
+        {
+            ImGui::Text("Merge Tree view todo…");
+        }
     }
+    ImGui::End();
 
     ImGui::EndFrame();
     ImGui::Render();
