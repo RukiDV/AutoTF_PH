@@ -25,6 +25,7 @@ void TextureResourceImGui::construct(const std::string& filePath)
 
     vk::DescriptorPoolSize pool_size;
     pool_size.descriptorCount = 1;
+    pool_size.type = vk::DescriptorType::eCombinedImageSampler;
 
     vk::DescriptorPoolCreateInfo pool_info;
     pool_info.poolSizeCount = 1;

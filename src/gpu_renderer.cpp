@@ -286,6 +286,46 @@ int gpu_render(const Volume &volume)
       }
       std::cout << "Computed and cached " << raw_pairs.size() << " persistence pairs.\n";
     }
+
+    // gradient
+    std::string grad_pairs_cache = cache_base + vol_id + "_grad_pairs.bin";
+    std::string grad_filt_cache  = cache_base + vol_id + "_grad_filts.bin";
+    std::vector<PersistencePair> raw_grad_pairs;
+    std::vector<int> grad_filtration_values;
+
+    if (std::filesystem::exists(grad_pairs_cache) && std::filesystem::exists(grad_filt_cache))
+    {
+        std::ifstream inG(grad_pairs_cache, std::ios::binary);
+        size_t G;
+        inG.read((char*)&G, sizeof(G));
+        raw_grad_pairs.resize(G);
+        inG.read((char*)raw_grad_pairs.data(), sizeof(PersistencePair)*G);
+        std::ifstream inGF(grad_filt_cache, std::ios::binary);
+        size_t GF;
+        inGF.read((char*)&GF, sizeof(GF));
+        grad_filtration_values.resize(GF);
+        inGF.read((char*)grad_filtration_values.data(), sizeof(int)*GF);
+        std::cout << "Loaded " << raw_grad_pairs.size() << " gradient pairs from cache.\n";
+    } else
+    {
+        Volume grad_vol = compute_gradient_volume(volume);
+        raw_grad_pairs = calculate_persistence_pairs(grad_vol, grad_filtration_values, app_state.filtration_mode);
+        std::filesystem::create_directories(cache_base);
+        {
+        std::ofstream outG(grad_pairs_cache, std::ios::binary);
+        size_t G = raw_grad_pairs.size();
+        outG.write((char*)&G, sizeof(G));
+        outG.write((char*)raw_grad_pairs.data(), sizeof(PersistencePair)*G);
+        }
+        {
+        std::ofstream outGF(grad_filt_cache, std::ios::binary);
+        size_t GF = grad_filtration_values.size();
+        outGF.write((char*)&GF, sizeof(GF));
+        outGF.write((char*)grad_filtration_values.data(), sizeof(int)*GF);
+        }
+        std::cout << "Computed and cached " << raw_grad_pairs.size() << " gradient pairs.\n";
+    }
+
     MergeTree merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
     exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
     std::vector<PersistencePair> defaultPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
@@ -324,19 +364,26 @@ int gpu_render(const Volume &volume)
 
     std::vector<PersistencePair> displayPairs;
     displayPairs.reserve(raw_pairs.size());
-    for (auto &p : raw_pairs) {
+    for (auto &p : raw_pairs)
+    {
         // look up the true scalar
         uint32_t b = filtration_values[p.birth];
         uint32_t d = filtration_values[p.death];
         displayPairs.emplace_back(b, d);
     }
 
+    std::vector<PersistencePair> gradDisplayPairs;
+    for (auto &p : raw_grad_pairs)
+    {
+        gradDisplayPairs.emplace_back(grad_filtration_values[p.birth], grad_filtration_values[p.death]);
+    }
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
 
     //gpu_context.wc.set_persistence_pairs(normalizedPairs, volume);
-    gpu_context.wc.set_raw_persistence_pairs(displayPairs);
-    //gpu_context.wc.set_persistence_pairs(displayPairs, volume);
+    gpu_context.wc.set_persistence_pairs(displayPairs, volume);
+    //gpu_context.wc.set_raw_persistence_pairs(displayPairs);
+    gpu_context.wc.set_gradient_persistence_pairs(gradDisplayPairs);
 
     bool quit = false;
     Timer rendering_timer;

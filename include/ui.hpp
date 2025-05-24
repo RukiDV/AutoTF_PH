@@ -29,9 +29,12 @@ public:
   void set_on_multi_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
   void set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp);
-  
+  void set_merge_tree(MergeTree* mt);
+  void set_on_merge_mode_changed(const std::function<void(int)>& cb);
+
   const Volume* get_volume() const { return volume; }
 
+  void mark_merge_tree_dirty();
 private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
@@ -67,7 +70,11 @@ private:
   ImVec2 brush_end;
   const std::vector<PersistencePair>* gradient_pairs = nullptr;
   bool use_gradient_pd = false;
-
+  std::function<void(int)> on_merge_mode_changed;
+  bool           mt_dirty = true;
+  std::vector<std::pair<ImVec2,ImVec2>> mt_edges;
+  std::vector<std::pair<ImVec2, uint32_t>> mt_nodes; 
+  
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
 };

@@ -36,6 +36,4 @@ class TransferFunction
 public:
     std::pair<uint32_t, uint32_t> compute_min_max_scalar(const Volume& volume);
     void update(const std::vector<PersistencePair>& pairs, const Volume& volume, std::vector<glm::vec4>& tf_data);
-    
-    void update_from_histogram(const Volume& volume, std::vector<glm::vec4>& tf_data);
 };

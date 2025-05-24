@@ -5,9 +5,7 @@
 
 namespace ve
 {
-WorkContext::WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc)
-  : vmc(vmc), vcc(vcc), storage(vmc, vcc), swapchain(vmc, vcc, storage), renderer(vmc, storage), ray_marcher(vmc, storage), persistence_texture_resource(vmc, storage), ui(vmc)
-{}
+WorkContext::WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc) : vmc(vmc), vcc(vcc), storage(vmc, vcc), swapchain(vmc, vcc, storage), renderer(vmc, storage), ray_marcher(vmc, storage), persistence_texture_resource(vmc, storage), ui(vmc) {}
 
 void WorkContext::construct(AppState& app_state, const Volume& volume)
 {
@@ -21,56 +19,67 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   for (uint32_t i = 0; i < frames_in_flight; ++i)
   {
     syncs.emplace_back(vmc.logical_device.get());
-		device_timers.emplace_back(vmc);
+    device_timers.emplace_back(vmc);
   }
-  const glm::uvec2 resolution(app_state.get_render_extent().width, app_state.get_render_extent().height);
   renderer.construct(swapchain.get_render_pass(), app_state);
   ray_marcher.construct(app_state, vcc, volume.resolution);
   ui.construct(vcc, swapchain.get_render_pass(), frames_in_flight);
   ui.set_transfer_function(&transfer_function);
-  ui.set_volume(&volume);
+  ui.set_volume(scalar_volume);
+
+  // compute scalar persistence pairs
+  std::vector<int> filt_vals;
+  persistence_pairs = calculate_persistence_pairs(volume, filt_vals, app_state.filtration_mode);
   ui.set_persistence_pairs(&persistence_pairs);
+  set_persistence_pairs(persistence_pairs, volume);
 
-  Volume grad_vol = compute_gradient_volume(volume);
-
-  // calculate its persistence pairs
-  std::vector<int> grad_filtration_values;
-  auto raw_grad_pairs = calculate_persistence_pairs(grad_vol, grad_filtration_values, app_state.filtration_mode);
-
+  // compute gradient‐volume & persistence pairs
+  gradient_volume = compute_gradient_volume(volume);
+  std::vector<int> grad_filt_vals;
+  auto raw_grad_pairs = calculate_persistence_pairs(gradient_volume, grad_filt_vals, app_state.filtration_mode);
   gradient_persistence_pairs.clear();
   gradient_persistence_pairs.reserve(raw_grad_pairs.size());
   for (auto &p : raw_grad_pairs)
   {
-      // look up the true gradient‐magnitude from the filtration array
-      uint32_t b = grad_filtration_values[p.birth];
-      uint32_t d = grad_filtration_values[p.death];
-      gradient_persistence_pairs.emplace_back(b, d);
+    uint32_t b = grad_filt_vals[p.birth];
+    uint32_t d = grad_filt_vals[p.death];
+    gradient_persistence_pairs.emplace_back(b, d);
   }
-
   ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
 
+  merge_tree = build_merge_tree_with_tolerance(persistence_pairs, 5u);
+  ui.set_merge_tree(&merge_tree);
+
+  // listen for scalar gradient toggle
+  ui.set_on_merge_mode_changed([this](int mode)
+  {
+    const auto &src = (mode == 0 ? persistence_pairs : gradient_persistence_pairs);
+    const Volume *vol = (mode == 0 ? scalar_volume : &gradient_volume);ui.set_persistence_pairs(&src);
+    ui.set_volume(vol);
+    
+    merge_tree = build_merge_tree_with_tolerance(src, 5u);
+    ui.mark_merge_tree_dirty();
+    set_persistence_pairs(src, *vol);
+  });
+
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
-  
   ui.set_on_pair_selected([this](const PersistencePair& hit){
     // iso-surface mode
     this->isolate_persistence_pairs({ hit });
   });
-
   ui.set_on_range_applied([this](const std::vector<PersistencePair>& range){
-      if (!range.empty()) 
-          // volume-highlight mode
-          this->volume_highlight_persistence_pairs(range);
+    if (!range.empty()) 
+      // volume-highlight mode
+      this->volume_highlight_persistence_pairs(range);
   });
-
   ui.set_on_multi_selected([this,&app_state](const std::vector<PersistencePair>& hits){
     if (app_state.display_mode == 0)
       this->isolate_persistence_pairs(hits);
     else
       this->volume_highlight_persistence_pairs(hits);
   });
-
   ui.set_on_brush_selected([this](const std::vector<PersistencePair>& hits){
-      this->volume_highlight_persistence_pairs(hits);
+    this->volume_highlight_persistence_pairs(hits);
   });
 }
 
@@ -96,18 +105,18 @@ void WorkContext::reload_shaders()
 
 void WorkContext::draw_frame(AppState &app_state)
 {
-  syncs[app_state.current_frame].wait_for_fence(Synchronization::F_RENDER_FINISHED);
-  syncs[app_state.current_frame].reset_fence(Synchronization::F_RENDER_FINISHED);
+  syncs[0].wait_for_fence(Synchronization::F_RENDER_FINISHED);
+  syncs[0].reset_fence(Synchronization::F_RENDER_FINISHED);
   if (app_state.total_frames > frames_in_flight)
-	{
+  {
     if (app_state.current_frame == 0)
     {
       // update device timers
       for (int i = 0; i < DeviceTimer::TIMER_COUNT; i++) app_state.device_timings[i] = device_timers[app_state.current_frame].get_result_by_idx(i);
     }
-	}
+  }
 
-  vk::ResultValue<uint32_t> image_idx = vmc.logical_device.get().acquireNextImageKHR(swapchain.get(), uint64_t(-1), syncs[app_state.current_frame].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
+  vk::ResultValue<uint32_t> image_idx = vmc.logical_device.get().acquireNextImageKHR(swapchain.get(), uint64_t(-1), syncs[0].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
   VE_CHECK(image_idx.result, "Failed to acquire next image!");
 
   uint32_t read_only_image = (app_state.total_frames / frames_in_flight) % frames_in_flight;
@@ -139,9 +148,6 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
 
     app_state.cam.update_data();
     storage.get_buffer_by_name("ray_marcher_uniform_buffer").update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
-
-    // wait for the previous rendering job that uses the buffer that will now be written
-    syncs[1 - app_state.current_frame].wait_for_fence(Synchronization::F_RENDER_FINISHED);
 
     vk::CommandBuffer& cb = vcc.get_one_time_transfer_buffer();
 
@@ -192,29 +198,37 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
 
   std::vector<vk::Semaphore> render_wait_semaphores;
   std::vector<vk::PipelineStageFlags> render_wait_stages;
-  render_wait_semaphores.push_back(syncs[app_state.current_frame].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
+  render_wait_semaphores.push_back(syncs[0].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
   render_wait_stages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
   std::vector<vk::Semaphore> render_signal_semaphores;
-  render_signal_semaphores.push_back(syncs[app_state.current_frame].get_semaphore(Synchronization::S_RENDER_FINISHED));
+  render_signal_semaphores.push_back(syncs[0].get_semaphore(Synchronization::S_RENDER_FINISHED));
   vk::SubmitInfo render_si(render_wait_semaphores.size(), render_wait_semaphores.data(), render_wait_stages.data(), 1, &vcc.graphics_cbs[app_state.current_frame], render_signal_semaphores.size(), render_signal_semaphores.data());
-  vmc.get_graphics_queue().submit(render_si, syncs[app_state.current_frame].get_fence(Synchronization::F_RENDER_FINISHED));
+  vmc.get_graphics_queue().submit(render_si, syncs[0].get_fence(Synchronization::F_RENDER_FINISHED));
 
-  vk::PresentInfoKHR present_info(1, &syncs[app_state.current_frame].get_semaphore(Synchronization::S_RENDER_FINISHED), 1, &swapchain.get(), &image_idx);
+  vk::PresentInfoKHR present_info(1, &syncs[0].get_semaphore(Synchronization::S_RENDER_FINISHED), 1, &swapchain.get(), &image_idx);
   VE_CHECK(vmc.get_present_queue().presentKHR(present_info), "Failed to present image!");
 }
 
-void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume) {
-    persistence_pairs = pairs; 
+void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume)
+{
+  persistence_pairs = pairs;
 
-    std::vector<glm::vec4> tf_data;
-    transfer_function.update(persistence_pairs, volume, tf_data);
-    std::cout << "Transfer function updated with " << tf_data.size() << " entries." << std::endl;
-    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
-    vmc.logical_device.get().waitIdle();
+  // compute the global max persistence, later used in isolate/volumeHighlight
+  global_max_persistence = 1;
+  for (auto &p : persistence_pairs)
+  {
+    uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
+    global_max_persistence = std::max(global_max_persistence, pers);
+}
+
+  std::vector<glm::vec4> tf_data;
+  transfer_function.update(persistence_pairs, volume, tf_data);
+  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  vmc.logical_device.get().waitIdle();
 }
 
 // build a histogram-based color/opacity array
-  void WorkContext::histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data)
+void WorkContext::histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data)
   {
       const int bins = 256;
       std::vector<int> histogram(bins, 0);
@@ -325,26 +339,23 @@ void WorkContext::highlight_persistence_pair(const PersistencePair& pair)
 
 void WorkContext::isolate_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {
-    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+   std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
 
-    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
-    auto normalize = [&](uint32_t v)
-    {
-        float t = float(v - vol_min) / float(vol_max - vol_min);
-        return uint32_t(std::clamp(t * 255.0f, 0.0f, 255.0f));
-    };
+    // use the stored global max, not recompute from `pairs`
+    uint32_t maxPers = std::max(global_max_persistence, 1u);
 
-    // paint every bin in [birth..death] solid red
-    glm::vec4 highlight(1.0f, 0.0f, 0.0f, 1.0f);
     for (auto &p : pairs)
     {
-        uint32_t bi = normalize(p.birth);
-        uint32_t di = normalize(p.death);
+        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
+        float norm = float(pers) / float(maxPers);
+        float hue  = (1.0f - norm) * 240.0f;     // 0=red .. 240=blue
+        glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
+
+        uint32_t bi = std::clamp(p.birth, 0u, 255u);
+        uint32_t di = std::clamp(p.death, 0u, 255u);
         if (bi > di) std::swap(bi, di);
-        for (uint32_t i = bi; i <= di && i < tf_data.size(); ++i)
-        {
-            tf_data[i] = highlight;
-        }
+        for (uint32_t i = bi; i <= di; ++i)
+            tf_data[i] = glm::vec4(rgb, 1.0f);
     }
 
     storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());
@@ -355,14 +366,20 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<Persisten
 {
     std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
 
-    // paint every bin in [birth..death] with a low‐alpha red
-    glm::vec4 highlight(1.0f, 0.0f, 0.0f, 1.0f);
+    uint32_t maxPers = std::max(global_max_persistence, 1u);
+
     for (auto &p : pairs)
     {
-        uint32_t b = std::clamp(p.birth, 0u, 255u);
-        uint32_t d = std::clamp(p.death, 0u, 255u);
-        for (uint32_t i = b; i <= d; ++i)
-            tf_data[i] = highlight;
+        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
+        float norm = float(pers) / float(maxPers);
+        float hue  = (1.0f - norm) * 240.0f;
+        glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
+
+        uint32_t bi = std::clamp(p.birth, 0u, 255u);
+        uint32_t di = std::clamp(p.death, 0u, 255u);
+        if (bi > di) std::swap(bi, di);
+        for (uint32_t i = bi; i <= di; ++i)
+            tf_data[i] = glm::vec4(rgb, 1.0f);
     }
 
     storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
@@ -374,5 +391,11 @@ void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& 
     raw_persistence_pairs = pairs;
     // tell the UI to use these for drawing
     ui.set_persistence_pairs(&raw_persistence_pairs);
+}
+
+void WorkContext::set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs)
+{
+    gradient_persistence_pairs = pairs;
+    ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
 }
 } // namespace ve

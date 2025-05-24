@@ -35,6 +35,7 @@ public:
   void isolate_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
+  void set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs);
   
 private:  
   const VulkanMainContext& vmc;
@@ -53,6 +54,9 @@ private:
   std::vector<Synchronization> syncs;
   std::vector<DeviceTimer> device_timers;
   std::vector<PersistencePair> gradient_persistence_pairs;
+  uint32_t global_max_persistence = 1;
+  const Volume* scalar_volume = nullptr;
+  Volume gradient_volume;
 
   void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
   void histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data); 
