@@ -81,6 +81,10 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_on_brush_selected([this](const std::vector<PersistencePair>& hits){
     this->volume_highlight_persistence_pairs(hits);
   });
+  ui.set_on_brush_selected_gradient([this](const std::vector<std::pair<PersistencePair, float>>& hits){
+    this->volume_highlight_persistence_pairs_gradient(hits);
+});
+
 }
 
 void WorkContext::destruct()
@@ -386,10 +390,33 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<Persisten
     vmc.logical_device.get().waitIdle();
 }
 
+void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs)
+{
+    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+
+    uint32_t maxPers = std::max(global_max_persistence, 1u);
+
+    for (auto &p : pairs)
+    {
+        uint32_t pers = (p.first.death > p.first.birth ? p.first.death - p.first.birth : 0);
+        float norm = float(pers) / float(maxPers);
+        float hue  = (1.0f - norm) * 240.0f;
+        glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
+
+        uint32_t bi = std::clamp(p.first.birth, 0u, 255u);
+        uint32_t di = std::clamp(p.first.death, 0u, 255u);
+        if (bi > di) std::swap(bi, di);
+        for (uint32_t i = bi; i <= di; ++i)
+            tf_data[i] = glm::vec4(rgb, p.second);  // use the feathered opacity here
+    }
+
+    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+    vmc.logical_device.get().waitIdle();
+}
+
 void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {
     raw_persistence_pairs = pairs;
-    // tell the UI to use these for drawing
     ui.set_persistence_pairs(&raw_persistence_pairs);
 }
 

@@ -31,6 +31,8 @@ public:
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp);
   void set_merge_tree(MergeTree* mt);
   void set_on_merge_mode_changed(const std::function<void(int)>& cb);
+  void set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&)>& cb);
+
 
   const Volume* get_volume() const { return volume; }
 
@@ -68,6 +70,8 @@ private:
   bool brush_active = false;
   ImVec2 brush_start;
   ImVec2 brush_end;
+  float brush_outer_mult = 1.0f;
+  float brush_inner_ratio = 0.7f;  
   const std::vector<PersistencePair>* gradient_pairs = nullptr;
   bool use_gradient_pd = false;
   std::function<void(int)> on_merge_mode_changed;
@@ -77,5 +81,6 @@ private:
   
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
+  std::function<void(const std::vector<std::pair<PersistencePair, float>>&)> on_brush_selected_gradient;
 };
 } // namespace ve

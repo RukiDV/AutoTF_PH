@@ -129,6 +129,11 @@ void UI::set_on_merge_mode_changed(const std::function<void(int)>& cb)
 
 void UI::mark_merge_tree_dirty() { mt_dirty = true; }
 
+void UI::set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&)>& cb)
+{
+    on_brush_selected_gradient = cb;
+}
+
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
     ImGui_ImplVulkan_NewFrame();
@@ -213,12 +218,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         // pick scalar vs gradient persistence
         static int pd_mode = 0;
         ImGui::Text("Persistence Pairs Mode:"); ImGui::SameLine();
-        if (ImGui::RadioButton("Scalar persistence",  &pd_mode, 0) ||
-        ImGui::RadioButton("Gradient persistence", &pd_mode, 1))
-        {
-            if (on_merge_mode_changed)
-                on_merge_mode_changed(pd_mode);
-        }
+        bool pd_changed = false;
+        if (ImGui::RadioButton("Scalar persistence", &pd_mode, 0)) pd_changed = true;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Gradient persistence", &pd_mode, 1)) pd_changed = true;
+
+        if (pd_changed && on_merge_mode_changed)
+            on_merge_mode_changed(pd_mode);
         ImGui::Separator();
 
         // choose which set to draw
@@ -301,6 +307,8 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 range_active = false;
                 multi_selected_idxs.clear();
                 multi_selected_cols.clear();
+                brush_outer_mult = 1.0f;
+                brush_inner_ratio = 0.7f;  
             }
             ImGui::SameLine();
             ImGui::Checkbox("Show Dots", &show_dots);
@@ -310,6 +318,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImGui::SliderFloat2("Persistence Range", persistence_range, 0.0f, 255.0f, "%.0f");
             ImGui::SliderFloat("Zoom", &diagram_zoom, 0.1f, 3.0f, "%.2f");
             ImGui::SliderFloat("Marker Size", &marker_size, 1.0f, 20.0f, "%.1f");
+            ImGui::SliderFloat("Brush Size Multiplier", &brush_outer_mult, 0.1f, 2.0f, "%.2f");
+            ImGui::SliderFloat("Inner Radius Ratio",   &brush_inner_ratio,   0.0f, 1.0f, "%.2f");
+            ImGui::Separator();
 
             ImGuiIO& io = ImGui::GetIO();
             blink_timer += io.DeltaTime;
@@ -397,13 +408,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         float hue = (1.0f - pers[i]) * 0.66f;
                         float r,g,b;
                         ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
-                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(r*255),int(g*255),int(b*255),255));
+                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(r*255), int(g*255), int(b*255), 255));
 
                         if (blink_on && k == selected_idx)
                             dl->AddCircle(pos, marker_size + 2.0f, selected_color, 16, 2.0f);
                     }
 
-                    // brush on drag
+                    // feathered brush
                     if (ImPlot::IsPlotHovered() && ImGui::IsMouseDragging(0))
                     {
                         if (!brush_active)
@@ -414,26 +425,44 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         brush_end = io.MousePos;
                     }
 
-                    // finish brush
                     if (brush_active && ImGui::IsMouseReleased(0))
                     {
                         brush_active = false;
                         float dx = brush_end.x - brush_start.x;
                         float dy = brush_end.y - brush_start.y;
-                        float r2 = dx*dx + dy*dy;
-                        std::vector<PersistencePair> brush_sel;
+                        // apply user multiplier
+                        float raw_r2 = dx*dx + dy*dy;
+                        float max_r2 = raw_r2 * brush_outer_mult * brush_outer_mult;
+                        float inner_r2 = max_r2 * brush_inner_ratio * brush_inner_ratio;
+
+                        std::vector<std::pair<PersistencePair, float>> brush_sel;
+                        brush_sel.reserve(dot_pos.size());
                         for (size_t i = 0; i < dot_pos.size(); ++i)
                         {
                             float ddx = dot_pos[i].x - brush_start.x;
                             float ddy = dot_pos[i].y - brush_start.y;
-                            if (ddx * ddx + ddy * ddy <= r2)
-                                brush_sel.push_back((*draw_pairs)[idxs[i]]);
+                            float dist2 = ddx*ddx + ddy*ddy;
+                            if (dist2 <= max_r2)
+                            {
+                                float opacity = (dist2 <= inner_r2) ? 1.0f : 1.0f - (std::sqrt(dist2) - std::sqrt(inner_r2)) / (std::sqrt(max_r2) - std::sqrt(inner_r2));
+                                brush_sel.emplace_back((*draw_pairs)[idxs[i]], opacity);
+                            }
                         }
-                        if (!brush_sel.empty() && on_brush_selected)
-                            on_brush_selected(brush_sel);
+                        if (!brush_sel.empty() && on_brush_selected_gradient)
+                            on_brush_selected_gradient(brush_sel);
                     }
 
-                    // click select
+                    if (brush_active)
+                    {
+                        float raw_r = std::sqrt((brush_end.x - brush_start.x)*(brush_end.x - brush_start.x) + (brush_end.y - brush_start.y)*(brush_end.y - brush_start.y));
+                        float r   = raw_r * brush_outer_mult;
+                        float ri  = r * brush_inner_ratio;
+
+                        dl->AddCircle(brush_start, r,  IM_COL32(255,255,0,150), 64, 2.0f);
+                        dl->AddCircle(brush_start, ri, IM_COL32(255,255,0,255), 64, 2.0f);
+                    }
+
+                    // click select & multi-select
                     if (!brush_active && ImPlot::IsPlotHovered() && ImGui::IsMouseReleased(0))
                     {
                         ImVec2 m = io.MousePos;
@@ -443,15 +472,14 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         {
                             float dx = m.x - dot_pos[i].x;
                             float dy = m.y - dot_pos[i].y;
-                            if (dx * dx + dy * dy < best_r2)
+                            if (dx*dx + dy*dy < best_r2)
                             {
-                                best_r2 = dx * dx + dy * dy;
+                                best_r2 = dx*dx + dy*dy;
                                 best_i = i;
                             }
                         }
                         if (best_i >= 0)
                         {
-                            // ctrl+click toggles multi-select
                             if (io.KeyCtrl)
                             {
                                 auto it = std::find(multi_selected_idxs.begin(), multi_selected_idxs.end(), best_i);
@@ -459,9 +487,11 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 {
                                     multi_selected_idxs.push_back(best_i);
                                     float hue = float(multi_selected_idxs.size()-1) / 6.0f;
-                                    float r,g,b;ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
-                                    multi_selected_cols.push_back(IM_COL32(int(r * 255), int(g * 255), int(b * 255), 255));
-                                } else
+                                    float r,g,b;
+                                    ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
+                                    multi_selected_cols.push_back(IM_COL32(int(r*255),int(g*255),int(b*255),255));
+                                }
+                                else
                                 {
                                     size_t idx = std::distance(multi_selected_idxs.begin(), it);
                                     multi_selected_idxs.erase(it);
@@ -474,7 +504,8 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                         sel.push_back((*draw_pairs)[idxs[k]]);
                                     on_multi_selected(sel);
                                 }
-                            } else
+                            }
+                            else
                             {
                                 multi_selected_idxs.clear();
                                 multi_selected_cols.clear();
@@ -483,20 +514,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 if (displayMode == 0)
                                 {
                                     if (on_pair_selected) on_pair_selected(p);
-                                } else
+                                }
+                                else
                                 {
                                     if (on_range_applied) on_range_applied({ p });
                                 }
                             }
                         }
-                    }
-
-                    // draw brush overlay
-                    if (brush_active)
-                    {
-                        float rad = std::sqrt((brush_end.x - brush_start.x)*(brush_end.x - brush_start.x) + (brush_end.y - brush_start.y)*(brush_end.y - brush_start.y)
-                        );
-                        dl->AddCircle(brush_start, rad, IM_COL32(255,255,0,150), 64, 2.0f);
                     }
 
                     // draw multi-select overlays
