@@ -31,8 +31,9 @@ public:
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp);
   void set_merge_tree(MergeTree* mt);
   void set_on_merge_mode_changed(const std::function<void(int)>& cb);
-  void set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&)>& cb);
-
+  void set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&, int)>& cb);
+  void set_on_highlight_selected(const std::function<void(const std::vector<std::pair<PersistencePair,float>>&,int)>& cb);
+  void clear_selection();
 
   const Volume* get_volume() const { return volume; }
 
@@ -75,12 +76,18 @@ private:
   const std::vector<PersistencePair>* gradient_pairs = nullptr;
   bool use_gradient_pd = false;
   std::function<void(int)> on_merge_mode_changed;
-  bool           mt_dirty = true;
+  bool mt_dirty = true;
   std::vector<std::pair<ImVec2,ImVec2>> mt_edges;
   std::vector<std::pair<ImVec2, uint32_t>> mt_nodes; 
   
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
-  std::function<void(const std::vector<std::pair<PersistencePair, float>>&)> on_brush_selected_gradient;
+  std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp)> on_brush_selected_gradient;
+  std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp_index)> on_highlight_selected;
+  std::vector<std::pair<PersistencePair,float>> last_highlight_hits;
+
+  bool use_highlight_opacity = false;
+  float highlight_opacity = 1.0f;
+  int selected_ramp = 0;
 };
 } // namespace ve

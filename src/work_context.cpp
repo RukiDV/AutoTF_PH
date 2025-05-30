@@ -27,18 +27,17 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_transfer_function(&transfer_function);
   ui.set_volume(scalar_volume);
 
-  // compute scalar persistence pairs
+  // compute and set scalar persistence pairs
   std::vector<int> filt_vals;
   persistence_pairs = calculate_persistence_pairs(volume, filt_vals, app_state.filtration_mode);
   ui.set_persistence_pairs(&persistence_pairs);
   set_persistence_pairs(persistence_pairs, volume);
 
-  // compute gradient‐volume & persistence pairs
+  // compute and set gradient persistence pairs
   gradient_volume = compute_gradient_volume(volume);
   std::vector<int> grad_filt_vals;
   auto raw_grad_pairs = calculate_persistence_pairs(gradient_volume, grad_filt_vals, app_state.filtration_mode);
   gradient_persistence_pairs.clear();
-  gradient_persistence_pairs.reserve(raw_grad_pairs.size());
   for (auto &p : raw_grad_pairs)
   {
     uint32_t b = grad_filt_vals[p.birth];
@@ -50,41 +49,49 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   merge_tree = build_merge_tree_with_tolerance(persistence_pairs, 5u);
   ui.set_merge_tree(&merge_tree);
 
-  // listen for scalar gradient toggle
+  // switching between scalar/gradient persistence
   ui.set_on_merge_mode_changed([this](int mode)
   {
-    const auto &src = (mode == 0 ? persistence_pairs : gradient_persistence_pairs);
-    const Volume *vol = (mode == 0 ? scalar_volume : &gradient_volume);ui.set_persistence_pairs(&src);
-    ui.set_volume(vol);
-    
-    merge_tree = build_merge_tree_with_tolerance(src, 5u);
-    ui.mark_merge_tree_dirty();
-    set_persistence_pairs(src, *vol);
-  });
+    if (mode == 0)
+    {
+      // scalar mode
+      ui.set_persistence_pairs(&persistence_pairs);
+      ui.set_gradient_persistence_pairs(nullptr);
+      ui.set_volume(scalar_volume);
 
-  load_persistence_diagram_texture("output_plots/persistence_diagram.png");
-  ui.set_on_pair_selected([this](const PersistencePair& hit){
-    // iso-surface mode
-    this->isolate_persistence_pairs({ hit });
-  });
-  ui.set_on_range_applied([this](const std::vector<PersistencePair>& range){
-    if (!range.empty()) 
-      // volume-highlight mode
-      this->volume_highlight_persistence_pairs(range);
-  });
-  ui.set_on_multi_selected([this,&app_state](const std::vector<PersistencePair>& hits){
-    if (app_state.display_mode == 0)
-      this->isolate_persistence_pairs(hits);
+      if (scalar_volume && !persistence_pairs.empty())
+      {
+        set_persistence_pairs(persistence_pairs, *scalar_volume);
+      }
+    }
     else
-      this->volume_highlight_persistence_pairs(hits);
-  });
-  ui.set_on_brush_selected([this](const std::vector<PersistencePair>& hits){
-    this->volume_highlight_persistence_pairs(hits);
-  });
-  ui.set_on_brush_selected_gradient([this](const std::vector<std::pair<PersistencePair, float>>& hits){
-    this->volume_highlight_persistence_pairs_gradient(hits);
-});
+    {
+      // gradient mode
+      ui.set_persistence_pairs(nullptr);
+      ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
+      ui.set_volume(&gradient_volume);
 
+      if (&gradient_volume && !gradient_persistence_pairs.empty())
+      {
+        std::vector<glm::vec4> tf_data;
+        transfer_function.update(gradient_persistence_pairs, gradient_volume, tf_data);
+        storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());
+        vmc.logical_device.get().waitIdle();
+      }
+    }
+    // rebuild tree, reset UI caches, etc…
+    merge_tree = build_merge_tree_with_tolerance((mode == 0 ? persistence_pairs : gradient_persistence_pairs), 5u);
+    ui.mark_merge_tree_dirty();
+    ui.clear_selection();
+  });
+
+  ui.set_on_highlight_selected([this](const std::vector<std::pair<PersistencePair, float>>& hits, int ramp_index)
+  {
+    this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
+  });
+
+  // load static persistence diagram texture (for reference)
+  load_persistence_diagram_texture("output_plots/persistence_diagram.png");
 }
 
 void WorkContext::destruct()
@@ -390,29 +397,57 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<Persisten
     vmc.logical_device.get().waitIdle();
 }
 
-void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs)
+void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index)
 {
-    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+  std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
 
-    uint32_t maxPers = std::max(global_max_persistence, 1u);
+  // choose color ramp endpoints based on ramp_index
+  glm::vec3 c0, c1;
+  switch (ramp_index)
+  {
+    case 0: // Blue -> Red
+      c0 = glm::vec3(0.0f, 0.0f, 1.0f);
+      c1 = glm::vec3(1.0f, 0.0f, 0.0f);
+      break;
+    case 1: // Viridis-like
+      c0 = glm::vec3(0.267f, 0.004f, 0.329f);
+      c1 = glm::vec3(0.993f, 0.906f, 0.143f);
+      break;
+    default: // Custom: Yellow → Magenta
+      c0 = glm::vec3(1.0f, 1.0f, 0.0f);
+      c1 = glm::vec3(1.0f, 0.0f, 1.0f);
+      break;
+  }
 
-    for (auto &p : pairs)
+  uint32_t max_pers = std::max(global_max_persistence, 1u);
+
+  // for each selected pair and its brush opacity
+  for (auto &entry : pairs)
+  {
+    const PersistencePair &p = entry.first;
+    float brush_op = entry.second;
+
+    // compute normalized persistence to drive color interpolation
+    uint32_t pers = (p.death > p.birth) ? p.death - p.birth : 0;
+    float tColor = float(pers) / float(max_pers);
+    tColor = glm::clamp(tColor, 0.0f, 1.0f);
+
+    glm::vec3 rgb = glm::mix(c0, c1, tColor);
+
+    uint32_t bi = std::clamp(p.birth,  uint32_t(0), uint32_t(255));
+    uint32_t di = std::clamp(p.death,  uint32_t(0), uint32_t(255));
+    if (bi > di) std::swap(bi, di);
+
+    // apply the color and opacity to all indices in [bi,di]
+    for (uint32_t i = bi; i <= di; ++i)
     {
-        uint32_t pers = (p.first.death > p.first.birth ? p.first.death - p.first.birth : 0);
-        float norm = float(pers) / float(maxPers);
-        float hue  = (1.0f - norm) * 240.0f;
-        glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
-
-        uint32_t bi = std::clamp(p.first.birth, 0u, 255u);
-        uint32_t di = std::clamp(p.first.death, 0u, 255u);
-        if (bi > di) std::swap(bi, di);
-        for (uint32_t i = bi; i <= di; ++i)
-            tf_data[i] = glm::vec4(rgb, p.second);  // use the feathered opacity here
+      tf_data[i] = glm::vec4(rgb, brush_op);
     }
+  }
 
-    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
-    vmc.logical_device.get().waitIdle();
-}
+  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  vmc.logical_device.get().waitIdle();
+} 
 
 void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {

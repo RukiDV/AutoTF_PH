@@ -129,10 +129,26 @@ void UI::set_on_merge_mode_changed(const std::function<void(int)>& cb)
 
 void UI::mark_merge_tree_dirty() { mt_dirty = true; }
 
-void UI::set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&)>& cb)
+// change to accept ramp arg
+void UI::set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&, int)>& cb)
 {
     on_brush_selected_gradient = cb;
 }
+
+void UI::set_on_highlight_selected(const std::function<void(const std::vector<std::pair<PersistencePair,float>>&,int)>& cb)
+{
+    on_highlight_selected = cb;
+}
+
+void UI::clear_selection()
+{
+    selected_idx = -1;
+    range_active = false;
+    last_highlight_hits.clear();
+    multi_selected_idxs.clear();
+    multi_selected_cols.clear();
+}
+
 
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
@@ -225,6 +241,45 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
         if (pd_changed && on_merge_mode_changed)
             on_merge_mode_changed(pd_mode);
+
+        if (pd_changed)
+        {
+            selected_idx = -1;
+            last_highlight_hits.clear();
+            multi_selected_idxs.clear();
+            multi_selected_cols.clear();
+            range_active = false;
+        }
+
+        ImGui::Separator();
+ 
+        ImGui::Text("Highlight Appearance");
+        ImGui::SliderFloat("Highlight Opacity", &highlight_opacity, 0.0f, 1.0f, "%.2f");
+        
+        static float prev_opacity = highlight_opacity;
+        if (highlight_opacity != prev_opacity)
+        {
+            prev_opacity = highlight_opacity;
+
+            for (auto &h : last_highlight_hits)
+            {
+                h.second = highlight_opacity;
+            }
+
+            if (!last_highlight_hits.empty() && on_highlight_selected)
+                on_highlight_selected(last_highlight_hits, selected_ramp);
+        } 
+
+        const char* ramp_names[] = { "Blue->Red", "Viridis", "Custom" };
+        ImGui::Combo("Color Ramp", &selected_ramp, ramp_names, IM_ARRAYSIZE(ramp_names));
+
+        static int prev_ramp = selected_ramp;
+        if (selected_ramp != prev_ramp)
+        {
+            prev_ramp = selected_ramp;
+            if (!last_highlight_hits.empty() && on_highlight_selected)
+                on_highlight_selected(last_highlight_hits, selected_ramp);
+        }
         ImGui::Separator();
 
         // choose which set to draw
@@ -352,6 +407,24 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     }
                 }
 
+                if (selected_idx >= (int)idxs.size())
+                    selected_idx = -1;
+
+                // remove any ctrl+click selections that are now invalid
+                for (auto it = multi_selected_idxs.begin(); it != multi_selected_idxs.end();)
+                {
+                    if (*it >= (int)idxs.size())
+                    {
+                        size_t color_idx = std::distance(multi_selected_idxs.begin(), it);
+                        it = multi_selected_idxs.erase(it);
+                        multi_selected_cols.erase(multi_selected_cols.begin() + color_idx);
+                    }
+                    else
+                    {
+                        ++it;
+                    }
+                }
+
                 if (ImGui::Button("Apply Range Filter"))
                 {
                     range_active = true;
@@ -359,8 +432,15 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     filtered.reserve(idxs.size());
                     for (int i : idxs)
                         filtered.push_back((*draw_pairs)[i]);
-                    if (on_range_applied)
-                        on_range_applied(filtered);
+                    
+                    std::vector<std::pair<PersistencePair,float>> hits;
+                    hits.reserve(filtered.size());
+                    for (auto &p : filtered)
+                        hits.emplace_back(p, 1.0f);
+
+                    last_highlight_hits = hits;
+                    if (!hits.empty() && on_highlight_selected)
+                        on_highlight_selected(hits, selected_ramp); 
                 }
                 ImGui::SameLine();
 
@@ -445,11 +525,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             if (dist2 <= max_r2)
                             {
                                 float opacity = (dist2 <= inner_r2) ? 1.0f : 1.0f - (std::sqrt(dist2) - std::sqrt(inner_r2)) / (std::sqrt(max_r2) - std::sqrt(inner_r2));
-                                brush_sel.emplace_back((*draw_pairs)[idxs[i]], opacity);
+                                float final_op = opacity * highlight_opacity;
+                                brush_sel.emplace_back((*draw_pairs)[idxs[i]], final_op); 
                             }
                         }
-                        if (!brush_sel.empty() && on_brush_selected_gradient)
-                            on_brush_selected_gradient(brush_sel);
+                        last_highlight_hits = brush_sel;
+                        if (!brush_sel.empty() && on_highlight_selected)
+                            on_highlight_selected(brush_sel, selected_ramp);
                     }
 
                     if (brush_active)
@@ -470,8 +552,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         int best_i = -1;
                         for (int i = 0; i < (int)dot_pos.size(); ++i)
                         {
-                            float dx = m.x - dot_pos[i].x;
-                            float dy = m.y - dot_pos[i].y;
+                            float dx = m.x - dot_pos[i].x, dy = m.y - dot_pos[i].y;
                             if (dx*dx + dy*dy < best_r2)
                             {
                                 best_r2 = dx*dx + dy*dy;
@@ -480,8 +561,14 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         }
                         if (best_i >= 0)
                         {
+                            // determine the base opacity from the slider
+                            float base_opacity = highlight_opacity;
+
+                            std::vector<std::pair<PersistencePair,float>> hits;
+
                             if (io.KeyCtrl)
                             {
+                                // toggle and collect multi‐select indices
                                 auto it = std::find(multi_selected_idxs.begin(), multi_selected_idxs.end(), best_i);
                                 if (it == multi_selected_idxs.end())
                                 {
@@ -497,29 +584,20 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                     multi_selected_idxs.erase(it);
                                     multi_selected_cols.erase(multi_selected_cols.begin() + idx);
                                 }
-                                if (on_multi_selected)
-                                {
-                                    std::vector<PersistencePair> sel;
-                                    for (int k : multi_selected_idxs)
-                                        sel.push_back((*draw_pairs)[idxs[k]]);
-                                    on_multi_selected(sel);
-                                }
+                                // build hits with chosen base opacity
+                                for (int k : multi_selected_idxs)
+                                    hits.emplace_back((*draw_pairs)[idxs[k]], base_opacity);
                             }
                             else
                             {
                                 multi_selected_idxs.clear();
                                 multi_selected_cols.clear();
+                                hits.emplace_back((*draw_pairs)[idxs[best_i]], base_opacity);
                                 selected_idx = best_i;
-                                PersistencePair p = (*draw_pairs)[idxs[best_i]];
-                                if (displayMode == 0)
-                                {
-                                    if (on_pair_selected) on_pair_selected(p);
-                                }
-                                else
-                                {
-                                    if (on_range_applied) on_range_applied({ p });
-                                }
                             }
+                            last_highlight_hits = hits;
+                            if (!hits.empty() && on_highlight_selected)
+                                on_highlight_selected(hits, selected_ramp);
                         }
                     }
 

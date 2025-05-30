@@ -36,7 +36,7 @@ public:
   void volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs);
-  void volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs);
+  void volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index);
   
 private:  
   const VulkanMainContext& vmc;
