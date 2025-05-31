@@ -401,53 +401,83 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
 {
   std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
 
-  // choose color ramp endpoints based on ramp_index
-  glm::vec3 c0, c1;
-  switch (ramp_index)
-  {
-    case 0: // Blue -> Red
-      c0 = glm::vec3(0.0f, 0.0f, 1.0f);
-      c1 = glm::vec3(1.0f, 0.0f, 0.0f);
-      break;
-    case 1: // Viridis-like
-      c0 = glm::vec3(0.267f, 0.004f, 0.329f);
-      c1 = glm::vec3(0.993f, 0.906f, 0.143f);
-      break;
-    default: // Custom: Yellow → Magenta
-      c0 = glm::vec3(1.0f, 1.0f, 0.0f);
-      c1 = glm::vec3(1.0f, 0.0f, 1.0f);
-      break;
-  }
-
   uint32_t max_pers = std::max(global_max_persistence, 1u);
 
-  // for each selected pair and its brush opacity
   for (auto &entry : pairs)
   {
     const PersistencePair &p = entry.first;
     float brush_op = entry.second;
 
-    // compute normalized persistence to drive color interpolation
-    uint32_t pers = (p.death > p.birth) ? p.death - p.birth : 0;
+    uint32_t pers = (p.death > p.birth ? (p.death - p.birth) : 0);
     float tColor = float(pers) / float(max_pers);
     tColor = glm::clamp(tColor, 0.0f, 1.0f);
 
-    glm::vec3 rgb = glm::mix(c0, c1, tColor);
+    glm::vec3 rgb;
+    switch (ramp_index)
+    {
+      case UI::RAMP_HSV:
+      {
+        float hue = (1.0f - tColor) * 0.66f; 
+        float r, g, b;
+        ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
+        rgb = glm::vec3(r, g, b);
+        break;
+      }
+      case UI::RAMP_VIRIDIS:
+        rgb = viridis(tColor);
+        break;
+
+      case UI::RAMP_PLASMA:
+        rgb = plasma(tColor);
+        break;
+
+      case UI::RAMP_MAGMA:
+        rgb = magma(tColor);
+        break;
+
+      case UI::RAMP_INFERNO:
+        rgb = inferno(tColor);
+        break;
+
+      case UI::RAMP_CUSTOM:
+      {
+        ImVec4 sc = ui.get_custom_start_color();
+        ImVec4 ec = ui.get_custom_end_color();
+        glm::vec3 c0 = glm::vec3(sc.x, sc.y, sc.z);
+        glm::vec3 c1 = glm::vec3(ec.x, ec.y, ec.z);
+        rgb = glm::mix(c0, c1, tColor);
+        break;
+      }
+
+      default:
+          {
+            float hue = (1.0f - tColor) * 0.66f;
+            float r, g, b;
+            ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
+            rgb = glm::vec3(r, g, b);
+          }
+          break;
+    }
+
+    float alpha = brush_op;
+    if (ramp_index == UI::RAMP_CUSTOM)
+    {
+        alpha *= ui.get_custom_falloff();
+    }
 
     uint32_t bi = std::clamp(p.birth,  uint32_t(0), uint32_t(255));
     uint32_t di = std::clamp(p.death,  uint32_t(0), uint32_t(255));
     if (bi > di) std::swap(bi, di);
 
-    // apply the color and opacity to all indices in [bi,di]
     for (uint32_t i = bi; i <= di; ++i)
     {
-      tf_data[i] = glm::vec4(rgb, brush_op);
+      tf_data[i] = glm::vec4(rgb, alpha);
     }
   }
 
   storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
   vmc.logical_device.get().waitIdle();
-} 
+}
 
 void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {

@@ -270,7 +270,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 on_highlight_selected(last_highlight_hits, selected_ramp);
         } 
 
-        const char* ramp_names[] = { "Blue->Red", "Viridis", "Custom" };
+        const char* ramp_names[] = { "HSV (Blue->Red)", "Viridis", "Plasma", "Magma", "Inferno", "Custom" };
         ImGui::Combo("Color Ramp", &selected_ramp, ramp_names, IM_ARRAYSIZE(ramp_names));
 
         static int prev_ramp = selected_ramp;
@@ -280,8 +280,27 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             if (!last_highlight_hits.empty() && on_highlight_selected)
                 on_highlight_selected(last_highlight_hits, selected_ramp);
         }
-        ImGui::Separator();
 
+        if (selected_ramp == RAMP_CUSTOM)
+        {
+            ImGui::ColorEdit4("Start Color", &custom_start_color.x);
+            ImGui::ColorEdit4("End Color",   &custom_end_color.x);
+            ImGui::SliderFloat("Opacity Falloff", &custom_opacity_falloff, 0.0f, 1.0f, "%.2f");
+
+            static ImVec4 prev_c0 = custom_start_color;
+            static ImVec4 prev_c1 = custom_end_color;
+            static float  prev_f  = custom_opacity_falloff;
+            if (custom_start_color.x != prev_c0.x || custom_start_color.y != prev_c0.y || custom_start_color.z != prev_c0.z || custom_start_color.w != prev_c0.w || custom_end_color.x   != prev_c1.x   || custom_end_color.y   != prev_c1.y   || custom_end_color.z != prev_c1.z   || custom_end_color.w   != prev_c1.w || custom_opacity_falloff != prev_f)
+            {
+                prev_c0 = custom_start_color;
+                prev_c1 = custom_end_color;
+                prev_f  = custom_opacity_falloff;
+                if (!last_highlight_hits.empty() && on_highlight_selected)
+                    on_highlight_selected(last_highlight_hits, selected_ramp);
+            }
+        }
+
+        ImGui::Separator(); 
         // choose which set to draw
         const auto* draw_pairs = (pd_mode == 1 && gradient_pairs) ? gradient_pairs : persistence_pairs;
 
@@ -482,16 +501,69 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         auto &p = (*draw_pairs)[i];
                         float fx = p.birth / 255.0f;
                         float fy = p.death / 255.0f;
-                        ImVec2 pos {origin.x + pad + fx * inner_w, origin.y + pad + (1.0f - fy) * inner_h};
+                        ImVec2 pos = ImVec2(origin.x + pad + fx * inner_w, origin.y + pad + (1.0f - fy) * inner_h);
                         dot_pos.push_back(pos);
 
-                        float hue = (1.0f - pers[i]) * 0.66f;
-                        float r,g,b;
-                        ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
-                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(r*255), int(g*255), int(b*255), 255));
+                        float tval = pers[i];
+
+                        // ramp‐based color lookup
+                        float cr=0.0f, cg=0.0f, cb=0.0f;
+                        switch (selected_ramp)
+                        {
+                            case RAMP_HSV:
+                            {
+                                ImGui::ColorConvertHSVtoRGB(tval, 1.0f, 1.0f, cr, cg, cb);
+                                break;
+                            }
+                            case RAMP_VIRIDIS:
+                            {
+                                glm::vec3 col = viridis(tval);
+                                cr = col.x; cg = col.y; cb = col.z;
+                                break;
+                            }
+                            case RAMP_PLASMA:
+                            {
+                                glm::vec3 col = plasma(tval);
+                                cr = col.x; cg = col.y; cb = col.z;
+                                break;
+                            }
+                            case RAMP_MAGMA:
+                            {
+                                glm::vec3 col = magma(tval);
+                                cr = col.x; cg = col.y; cb = col.z;
+                                break;
+                            }
+                            case RAMP_INFERNO:
+                            {
+                                glm::vec3 col = inferno(tval);
+                                cr = col.x; cg = col.y; cb = col.z;
+                                break;
+                            }
+                            case RAMP_CUSTOM:
+                            {
+                                // linearly interpolate between the two user‐picked endpoints
+                                ImVec4 a = custom_start_color;
+                                ImVec4 bcol = custom_end_color;
+                                cr = a.x + tval * (bcol.x - a.x);
+                                cg = a.y + tval * (bcol.y - a.y);
+                                cb = a.z + tval * (bcol.z - a.z);
+                                break;
+                            }
+                            default:
+                            {
+                                // fallback to HSV if somehow out of range
+                                ImGui::ColorConvertHSVtoRGB(tval, 1.0f, 1.0f, cr, cg, cb);
+                                break;
+                            }
+                        }
+
+                        // draw the dot
+                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(cr * 255),int(cg*255), int(cb*255), 255));
 
                         if (blink_on && k == selected_idx)
+                        {
                             dl->AddCircle(pos, marker_size + 2.0f, selected_color, 16, 2.0f);
+                        }
                     }
 
                     // feathered brush

@@ -9,12 +9,23 @@
 #include <functional>
 #include "imgui.h"
 #include <vector>
+#include "colormaps.hpp"
 
 namespace ve
 {
 class UI
 {
 public:
+  
+  enum
+  {
+    RAMP_HSV      = 0,
+    RAMP_VIRIDIS  = 1,
+    RAMP_PLASMA   = 2,
+    RAMP_MAGMA    = 3,
+    RAMP_INFERNO  = 4,
+    RAMP_CUSTOM   = 5
+  };
   explicit UI(const VulkanMainContext& vmc);
   void construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames);
   void destruct();
@@ -38,6 +49,16 @@ public:
   const Volume* get_volume() const { return volume; }
 
   void mark_merge_tree_dirty();
+
+  int selected_ramp = RAMP_VIRIDIS; 
+  ImVec4 custom_start_color {1,1,0,1};
+  ImVec4 custom_end_color   {1,0,1,1};
+  float  custom_opacity_falloff = 1.0f;
+
+  ImVec4 get_custom_start_color() const { return custom_start_color; }
+  ImVec4 get_custom_end_color()   const { return custom_end_color; }
+  float  get_custom_falloff()     const { return custom_opacity_falloff; }
+  
 private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
@@ -88,6 +109,5 @@ private:
 
   bool use_highlight_opacity = false;
   float highlight_opacity = 1.0f;
-  int selected_ramp = 0;
 };
 } // namespace ve
