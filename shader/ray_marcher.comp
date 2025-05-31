@@ -158,7 +158,6 @@ vec3 ray_march(Ray ray)
             // early exit on first non-zero alpha
             if (tfv.a > 0.0)
             {
-                // force pure red highlight
                 return tfv.rgb;
             }
             t += step_size;

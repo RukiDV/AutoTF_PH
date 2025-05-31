@@ -195,6 +195,62 @@ Volume create_simple_volume()
     return volume;
 }
 
+Volume create_disjoint_components_volume()
+{
+    Volume volume;
+    // use a slightly larger grid so the two cubes don’t touch
+    const uint32_t W = 32, H = 32, D = 32;
+    volume.resolution = glm::uvec3(W, H, D);
+    uint32_t totalVoxels = W * H * D;
+
+    // 1) fill with a “background” mid‐intensity
+    volume.data.assign(totalVoxels, 128u);
+
+    auto idx = [&](uint32_t x, uint32_t y, uint32_t z) {
+        return size_t(z) * W * H
+             + size_t(y) * W
+             + size_t(x);
+    };
+
+    // 2) first cube in one corner at intensity = 200
+    for (uint32_t z = 4; z < 12; ++z)
+    for (uint32_t y = 4; y < 12; ++y)
+    for (uint32_t x = 4; x < 12; ++x)
+        volume.data[idx(x,y,z)] = 200u;
+
+    // 3) second cube in the opposite corner at intensity = 240
+    for (uint32_t z = 20; z < 28; ++z)
+    for (uint32_t y = 20; y < 28; ++y)
+    for (uint32_t x = 20; x < 28; ++x)
+        volume.data[idx(x,y,z)] = 240u;
+
+    return volume;
+}
+
+Volume create_tiny_disjoint_volume()
+{
+    Volume vol;
+    const uint32_t W = 8, H = 8, D = 8;
+    vol.resolution = {W,H,D};
+    vol.data.assign(W * H * D,  50); // background at 50
+
+    auto idx = [&](int x,int y,int z){ return z * W * H + y * W + x; };
+
+    // first 2×2×2 cube at intensity 100
+    for (int z = 1; z < 3; z++)
+        for(int y = 1; y < 3; y++)
+            for(int x = 1; x < 3; x++)
+                vol.data[idx(x,y,z)] = 100;
+
+    // second 2×2×2 cube at intensity 150
+    for(int z = 5; z < 7; z++)
+        for(int y = 5; y < 7; y++)
+            for(int x = 5; x < 7; x++)
+                vol.data[idx(x,y,z)] = 150;
+
+    return vol;
+}
+
 Volume create_gradient_volume()
 {
     Volume volume;

@@ -20,4 +20,6 @@ struct Volume
 [[nodiscard]] int load_volume_from_file(const std::string& path, Volume& volume);
 Volume compute_gradient_volume(const Volume& volume);
 Volume create_simple_volume();
+Volume create_disjoint_components_volume();
+Volume create_tiny_disjoint_volume();
 Volume create_gradient_volume();
