@@ -58,8 +58,15 @@ public:
   ImVec4 get_custom_start_color() const { return custom_start_color; }
   ImVec4 get_custom_end_color()   const { return custom_end_color; }
   float  get_custom_falloff()     const { return custom_opacity_falloff; }
+
+  void set_on_diff_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
+  void set_on_intersect_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
+  void set_on_union_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
+
+  int diff_idx0 = -1;
+  int diff_idx1 = -1;
   
-private:
+  private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
   MergeTree* merge_tree = nullptr;
@@ -68,7 +75,7 @@ private:
   ImTextureID persistence_texture_ID = (ImTextureID)0;
   std::function<void(const PersistencePair&)> on_pair_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
-
+  
   bool cache_dirty = true;
   bool show_dots = true;
   bool range_active = false;
@@ -86,7 +93,7 @@ private:
   std::vector<ImVec2> dot_pos;
   int selected_idx = -1; // –1 means “no selection”
   ImU32  selected_color = IM_COL32(255,0,255,255);
-
+  
   std::vector<int> multi_selected_idxs;
   std::vector<ImU32> multi_selected_cols;
   bool brush_active = false;
@@ -106,8 +113,11 @@ private:
   std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp)> on_brush_selected_gradient;
   std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp_index)> on_highlight_selected;
   std::vector<std::pair<PersistencePair,float>> last_highlight_hits;
-
+  
   bool use_highlight_opacity = false;
   float highlight_opacity = 1.0f;
+  std::function<void(const PersistencePair&, const PersistencePair&)> on_diff_selected;
+  std::function<void(const PersistencePair&, const PersistencePair&)> on_intersect_selected;
+  std::function<void(const PersistencePair&, const PersistencePair&)> on_union_selected;
 };
 } // namespace ve

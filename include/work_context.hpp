@@ -37,6 +37,9 @@ public:
   void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index);
+  void highlight_diff(const PersistencePair &base, const PersistencePair &mask);
+  void highlight_intersection(const PersistencePair &a, const PersistencePair &b);
+  void highlight_union(const PersistencePair &a, const PersistencePair &b);
   
 private:  
   const VulkanMainContext& vmc;

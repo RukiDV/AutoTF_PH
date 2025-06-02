@@ -90,6 +90,18 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
     this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
   });
 
+  ui.set_on_diff_selected([this](const PersistencePair &a, const PersistencePair &b) {
+    this->highlight_diff(a,b);
+  });
+
+  ui.set_on_intersect_selected([this](const PersistencePair &a, const PersistencePair &b) {
+    this->highlight_intersection(a, b);
+  });
+  ui.set_on_union_selected([this](const PersistencePair &a, const PersistencePair &b) {
+      this->highlight_union(a, b);
+  });
+
+
   // load static persistence diagram texture (for reference)
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
 }
@@ -478,6 +490,123 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
   storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
   vmc.logical_device.get().waitIdle();
 }
+
+void WorkContext::highlight_diff(const PersistencePair &base, const PersistencePair &mask)
+{
+  std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+
+  uint32_t b0 = std::clamp(base.birth,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  uint32_t d0 = std::clamp(base.death,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  if (b0 > d0) std::swap(b0, d0);
+
+  uint32_t b1 = std::clamp(mask.birth,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  uint32_t d1 = std::clamp(mask.death,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  if (b1 > d1) std::swap(b1, d1);
+
+  glm::vec3 diff_color = glm::vec3(0.0f, 1.0f, 1.0f);
+
+  // fill every index i elem [b0..d0] with diff_color
+  for (uint32_t i = b0; i <= d0; ++i)
+  {
+      tf_data[i] = glm::vec4(diff_color, 1.0f);
+  }
+
+  // “mask out” interval [b1..d1] make them transparent again
+  for (uint32_t i = b1; i <= d1; ++i)
+  {
+      tf_data[i] = glm::vec4(0.0f);
+  }
+
+  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  vmc.logical_device.get().waitIdle();
+}
+
+void WorkContext::highlight_intersection(const PersistencePair &a, const PersistencePair &b)
+{
+  std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+
+  uint32_t a0 = std::clamp(a.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  uint32_t a1 = std::clamp(a.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  if (a0 > a1) std::swap(a0, a1);
+
+  uint32_t b0 = std::clamp(b.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  uint32_t b1 = std::clamp(b.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  if (b0 > b1) std::swap(b0, b1);
+
+  // intersection [max(a0,b0) .. min(a1,b1)]
+  uint32_t i_start = std::max(a0, b0);
+  uint32_t i_end   = std::min(a1, b1);
+
+  if (i_start <= i_end)
+  {
+      glm::vec3 col = glm::vec3(1.0f, 0.5f, 0.0f);
+      for (uint32_t i = i_start; i <= i_end; ++i)
+      {
+          tf_data[i] = glm::vec4(col, 1.0f);
+      }
+  }
+
+  // exclusive parts transparent
+  // voxels that are only in A or B will be colored with 30% opacity
+  for (uint32_t i = a0; i < i_start; ++i)
+  {
+      tf_data[i] = glm::vec4(1.0f, 0.0f, 0.0f, 0.3f);
+  }
+  for (uint32_t i = i_end + 1; i <= a1; ++i)
+  {
+      tf_data[i] = glm::vec4(1.0f, 0.0f, 0.0f, 0.3f);
+  }
+  for (uint32_t i = b0; i < i_start; ++i)
+  {
+      tf_data[i] = glm::vec4(0.0f, 0.0f, 1.0f, 0.3f);
+  }
+  for (uint32_t i = i_end + 1; i <= b1; ++i)
+  {
+      tf_data[i] = glm::vec4(0.0f, 0.0f, 1.0f, 0.3f);
+  }
+
+  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  vmc.logical_device.get().waitIdle();
+}
+
+void WorkContext::highlight_union(const PersistencePair &a, const PersistencePair &b)
+{
+  std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
+
+  uint32_t a0 = std::clamp(a.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  uint32_t a1 = std::clamp(a.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  if (a0 > a1) std::swap(a0, a1);
+
+  uint32_t b0 = std::clamp(b.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  uint32_t b1 = std::clamp(b.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  if (b0 > b1) std::swap(b0, b1);
+
+  glm::vec3 colorA = glm::vec3(1.0f, 0.0f, 0.0f);
+  glm::vec3 colorB = glm::vec3(0.0f, 0.0f, 1.0f);
+  glm::vec3 colorAB = glm::vec3(1.0f, 0.0f, 1.0f);
+
+  // mark A befor overlapping
+  for (uint32_t i = a0; i <= a1; ++i)
+  {
+      tf_data[i] = glm::vec4(colorA, 1.0f);
+  }
+  // mark B and show overlapping
+  for (uint32_t i = b0; i <= b1; ++i)
+  {
+      if (tf_data[i].a == 1.0f)
+      {
+          tf_data[i] = glm::vec4(colorAB, 1.0f);
+      }
+      else
+      {
+          tf_data[i] = glm::vec4(colorB, 1.0f);
+      }
+  }
+
+  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  vmc.logical_device.get().waitIdle();
+}
+
 
 void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {

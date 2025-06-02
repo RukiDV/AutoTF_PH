@@ -140,6 +140,21 @@ void UI::set_on_highlight_selected(const std::function<void(const std::vector<st
     on_highlight_selected = cb;
 }
 
+void UI::set_on_diff_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb)
+{ 
+    on_diff_selected = cb;
+}
+void UI::set_on_intersect_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb)
+{
+    on_intersect_selected = cb;
+}
+
+void UI::set_on_union_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb)
+{
+    on_union_selected = cb;
+}
+
+
 void UI::clear_selection()
 {
     selected_idx = -1;
@@ -694,6 +709,58 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                 ImPlot::PopPlotClipRect();
                 ImPlot::EndPlot();
+
+                // if exactly two points have been ctrl-multi-clicked, show “Apply Diff”
+                if (multi_selected_idxs.size() == 2)
+                {
+                    const PersistencePair &p1 = (*draw_pairs)[ idxs[ multi_selected_idxs[0] ] ];
+                    const PersistencePair &p2 = (*draw_pairs)[ idxs[ multi_selected_idxs[1] ] ];
+
+                    // difference Button
+                    if (ImGui::Button("Apply Diff"))
+                    {
+                        if (on_diff_selected)
+                            on_diff_selected(p1, p2);
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "- Displays only the voxels that belong to A but not to B.\n"
+                            "- Color code: Cyan = A without B\n");
+                    ImGui::SameLine();
+
+                    // intersection Button
+                    if (ImGui::Button("Apply Intersection"))
+                    {
+                        if (on_intersect_selected)
+                            on_intersect_selected(p1, p2);
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "- Displays only the voxels that belong to both A and B.\n"
+                            "- Color code:\n"
+                            "   - Orange (100%% opacity): voxels in both A and B\n"
+                            "   - Red    (30%% opacity): voxels only in A\n"
+                            "   - Blue   (30%% opacity): voxels only in B\n");
+                    ImGui::SameLine();
+                
+                    // union Button
+                    if (ImGui::Button("Apply Union"))
+                    {
+                        if (on_union_selected)
+                            on_union_selected(p1, p2);
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "- Displays all voxels that belong to A or B.\n"
+                            "- Color code:\n"
+                            "  - Red     : voxels only in A\n"
+                            "  - Blue    : voxels only in B\n"
+                            "  - Magenta : voxels in both A and B\n"
+                        );
+                    ImGui::SameLine();
+                }
+
+                ImGui::NewLine(); ImGui::Spacing();
 
                 if (selected_idx >= 0)
                 {
