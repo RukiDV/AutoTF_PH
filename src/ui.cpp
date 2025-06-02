@@ -512,7 +512,8 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         {
                             case RAMP_HSV:
                             {
-                                ImGui::ColorConvertHSVtoRGB(tval, 1.0f, 1.0f, cr, cg, cb);
+                                float hue = (1.0f - tval) * 0.66f;
+                                ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, cr, cg, cb);
                                 break;
                             }
                             case RAMP_VIRIDIS:
@@ -541,7 +542,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             }
                             case RAMP_CUSTOM:
                             {
-                                // linearly interpolate between the two user‐picked endpoints
                                 ImVec4 a = custom_start_color;
                                 ImVec4 bcol = custom_end_color;
                                 cr = a.x + tval * (bcol.x - a.x);
@@ -551,14 +551,23 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             }
                             default:
                             {
-                                // fallback to HSV if somehow out of range
                                 ImGui::ColorConvertHSVtoRGB(tval, 1.0f, 1.0f, cr, cg, cb);
                                 break;
                             }
                         }
+                        cr = glm::clamp(cr, 0.0f, 1.0f);
+                        cg = glm::clamp(cg, 0.0f, 1.0f);
+                        cb = glm::clamp(cb, 0.0f, 1.0f);
 
                         // draw the dot
-                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(cr * 255),int(cg*255), int(cb*255), 255));
+                        dl->AddCircleFilled(pos, marker_size, IM_COL32(int(cr*255), int(cg*255), int(cb*255), 255));
+
+                        // if it is a very dark color draw a faint white outline
+                        float lum = 0.2126f*cr + 0.7152f*cg + 0.0722f*cb;
+                        if (lum < 0.05f)
+                        {
+                            dl->AddCircle(pos, marker_size + 0.2f, IM_COL32(255,255,255,100), 12, 1.0f);
+                        }
 
                         if (blink_on && k == selected_idx)
                         {
@@ -871,9 +880,11 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 ImVec4 col;
                                 if (is_sel)
                                     col = ImVec4(1.0f, 0.4f, 0.7f, 1.0f); // pink
-                                else {
+                                else
+                                {
                                     float hue = (1.0f - (lengths[rank].first / (maxP>0?maxP:1.0f))) * 0.66f;
-                                    float r,g,b; ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
+                                    float r,g,b;
+                                    ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
                                     col = ImVec4(r,g,b,1.0f);
                                 }
 
