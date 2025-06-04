@@ -40,6 +40,8 @@ public:
   void highlight_diff(const PersistencePair &base, const PersistencePair &mask);
   void highlight_intersection(const PersistencePair &a, const PersistencePair &b);
   void highlight_union(const PersistencePair &a, const PersistencePair &b);
+
+  void export_persistence_pairs_to_csv(const std::vector<PersistencePair>& scalar_pairs, const std::vector<PersistencePair>& gradient_pairs, const std::string& scalar_filename  = "scalar_pairs.csv", const std::string& gradient_filename = "gradient_pairs.csv") const;
   
 private:  
   const VulkanMainContext& vmc;
@@ -61,6 +63,7 @@ private:
   uint32_t global_max_persistence = 1;
   const Volume* scalar_volume = nullptr;
   Volume gradient_volume;
+  int current_pd_mode = 0; // 0 for scalar, 1 for gradient
 
   void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
   void histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data); 

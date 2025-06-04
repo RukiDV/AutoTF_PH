@@ -57,9 +57,4 @@ if __name__ == "__main__":
     output_dir      = sys.argv[3] if len(sys.argv) > 3 else "output_plots"
     vector_flag     = (len(sys.argv) > 4 and sys.argv[4].lower() in ("svg","pdf","eps","vector","v"))
 
-    plot_persistence_diagram(input_file,
-                             output_filename,
-                             output_dir=output_dir,
-                             figsize=(12,12),
-                             dpi=600,
-                             vector=vector_flag)
+    plot_persistence_diagram(input_file, output_filename, output_dir=output_dir, figsize=(12,12), dpi=600, vector=vector_flag)

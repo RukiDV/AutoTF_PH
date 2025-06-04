@@ -2,6 +2,10 @@
 #include <vulkan/vulkan_enums.hpp>
 #include "stb/stb_image.h"
 #include "transfer_function.hpp"
+#include <fstream>
+#include <iostream>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 namespace ve
 {
@@ -79,15 +83,26 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
         vmc.logical_device.get().waitIdle();
       }
     }
-    // rebuild tree, reset UI caches, etc…
     merge_tree = build_merge_tree_with_tolerance((mode == 0 ? persistence_pairs : gradient_persistence_pairs), 5u);
     ui.mark_merge_tree_dirty();
     ui.clear_selection();
   });
 
-  ui.set_on_highlight_selected([this](const std::vector<std::pair<PersistencePair, float>>& hits, int ramp_index)
+  ui.set_on_highlight_selected([this](const std::vector<std::pair<PersistencePair,float>>& hits, int ramp_index)
   {
-    this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
+    if (current_pd_mode == 0)
+    {
+      std::vector<PersistencePair> plain_pairs;
+      plain_pairs.reserve(hits.size());
+      for (auto &entry : hits)
+          plain_pairs.push_back(entry.first);
+
+      this->volume_highlight_persistence_pairs(plain_pairs);
+    }
+    else
+    {
+      this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
+    }
   });
 
   ui.set_on_diff_selected([this](const PersistencePair &a, const PersistencePair &b) {
@@ -101,6 +116,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
       this->highlight_union(a, b);
   });
 
+  export_persistence_pairs_to_csv(persistence_pairs, gradient_persistence_pairs, "scalar_pairs.csv", "gradient_pairs.csv");
 
   // load static persistence diagram texture (for reference)
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
@@ -388,7 +404,6 @@ void WorkContext::isolate_persistence_pairs(const std::vector<PersistencePair>& 
 void WorkContext::volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {
     std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
-
     uint32_t maxPers = std::max(global_max_persistence, 1u);
 
     for (auto &p : pairs)
@@ -398,8 +413,8 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<Persisten
         float hue  = (1.0f - norm) * 240.0f;
         glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
 
-        uint32_t bi = std::clamp(p.birth, 0u, 255u);
-        uint32_t di = std::clamp(p.death, 0u, 255u);
+        uint32_t bi = std::clamp(p.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+        uint32_t di = std::clamp(p.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
         if (bi > di) std::swap(bi, di);
         for (uint32_t i = bi; i <= di; ++i)
             tf_data[i] = glm::vec4(rgb, 1.0f);
@@ -610,13 +625,53 @@ void WorkContext::highlight_union(const PersistencePair &a, const PersistencePai
 
 void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {
-    raw_persistence_pairs = pairs;
-    ui.set_persistence_pairs(&raw_persistence_pairs);
+  raw_persistence_pairs = pairs;
+  ui.set_persistence_pairs(&raw_persistence_pairs);
 }
 
 void WorkContext::set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {
-    gradient_persistence_pairs = pairs;
-    ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
+  gradient_persistence_pairs = pairs;
+  ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
+}
+
+void WorkContext::export_persistence_pairs_to_csv(const std::vector<PersistencePair>& scalar_pairs, const std::vector<PersistencePair>& gradient_pairs, const std::string& scalar_filename, const std::string& gradient_filename) const
+{
+  if (mkdir("volume_data", 0755) != 0 && errno != EEXIST)
+  {
+    std::cerr << "Error: could not create directory 'volume_data'\n";
+    return;
+  }
+
+  std::string scalar_path   = std::string("volume_data/") + scalar_filename;
+  std::string gradient_path = std::string("volume_data/") + gradient_filename;
+
+  // write scalar-mode pairs to CSV
+  std::ofstream out_scalar(scalar_path);
+  if (!out_scalar)
+  {
+      std::cerr << "Error: could not open '" << scalar_filename << "' for writing\n";
+      return;
+  }
+  out_scalar << "birth,death\n";
+  for (const auto& p : scalar_pairs)
+  {
+      out_scalar << p.birth << "," << p.death << "\n";
+  }
+
+  // write gradient-mode pairs to CSV
+  std::ofstream out_grad(gradient_path);
+  if (!out_grad)
+  {
+      std::cerr << "Error: could not open '" << gradient_filename << "' for writing\n";
+      return;
+  }
+  out_grad << "birth,death\n";
+  for (const auto& p : gradient_pairs)
+  {
+      out_grad << p.birth << "," << p.death << "\n";
+  }
+
+  std::cout << "Exported persistence pairs to:\n" << "  - " << scalar_filename  << "\n" << "  - " << gradient_filename << "\n";
 }
 } // namespace ve

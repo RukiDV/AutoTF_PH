@@ -4,7 +4,8 @@ output_plots/
 images/
 *.ini
 /data
-persistence_pairs.txt
 merge_tree_edges_filtered.txt
 tmp.txt
 cache/
+volume_data/
+*.spv

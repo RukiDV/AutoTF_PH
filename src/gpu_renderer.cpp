@@ -338,7 +338,7 @@ int gpu_render(const Volume &volume)
         normalizedPairs.push_back(PersistencePair(normBirth, normDeath));
     }
 
-    std::ofstream outfile("persistence_pairs.txt");
+    std::ofstream outfile("volume_data/persistence_pairs.txt");
     if (outfile.is_open())
     {
         for (const auto &pair : raw_pairs)
