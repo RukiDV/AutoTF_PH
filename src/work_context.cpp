@@ -518,12 +518,17 @@ void WorkContext::highlight_diff(const PersistencePair &base, const PersistenceP
   uint32_t d1 = std::clamp(mask.death,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
   if (b1 > d1) std::swap(b1, d1);
 
-  glm::vec3 diff_color = glm::vec3(0.0f, 1.0f, 1.0f);
-
-  // fill every index i elem [b0..d0] with diff_color
-  for (uint32_t i = b0; i <= d0; ++i)
+  if (ui.diff_enabled)
   {
-      tf_data[i] = glm::vec4(diff_color, 1.0f);
+    ImVec4 c = ui.diff_color; 
+    glm::vec3 diff_color = glm::vec3(c.x, c.y, c.z);
+    float alpha = c.w;
+
+    // fill every index i elem [b0..d0] with diff_color
+    for (uint32_t i = b0; i <= d0; ++i)
+    {
+      tf_data[i] = glm::vec4(diff_color, alpha);
+    }
   }
 
   // “mask out” interval [b1..d1] make them transparent again
@@ -552,32 +557,50 @@ void WorkContext::highlight_intersection(const PersistencePair &a, const Persist
   uint32_t i_start = std::max(a0, b0);
   uint32_t i_end   = std::min(a1, b1);
 
-  if (i_start <= i_end)
+  if (i_start <= i_end && ui.intersect_enabled_common)
   {
-      glm::vec3 col = glm::vec3(1.0f, 0.5f, 0.0f);
-      for (uint32_t i = i_start; i <= i_end; ++i)
-      {
-          tf_data[i] = glm::vec4(col, 1.0f);
-      }
+    ImVec4 c = ui.intersect_color_common;
+    glm::vec3 col = glm::vec3(c.x, c.y, c.z);
+    float alpha = c.w;
+    
+    for (uint32_t i = i_start; i <= i_end; ++i)
+    {
+      tf_data[i] = glm::vec4(col, alpha);
+    }
   }
 
   // exclusive parts transparent
   // voxels that are only in A or B will be colored with 30% opacity
-  for (uint32_t i = a0; i < i_start; ++i)
+  if (ui.intersect_enabled_Aonly)
   {
-      tf_data[i] = glm::vec4(1.0f, 0.0f, 0.0f, 0.3f);
+    ImVec4 cA = ui.intersect_color_Aonly;
+    glm::vec3 colA = glm::vec3(cA.x, cA.y, cA.z);
+    float alphaA = cA.w;
+    
+    for (uint32_t i = a0; i < i_start && i <= a1; ++i)
+    {
+      tf_data[i] = glm::vec4(colA, alphaA);
+    }
+    for (uint32_t i = i_end + 1; i <= a1; ++i)
+    {
+      tf_data[i] = glm::vec4(colA, alphaA);
+    }
   }
-  for (uint32_t i = i_end + 1; i <= a1; ++i)
+
+  if (ui.intersect_enabled_Bonly)
   {
-      tf_data[i] = glm::vec4(1.0f, 0.0f, 0.0f, 0.3f);
-  }
-  for (uint32_t i = b0; i < i_start; ++i)
-  {
-      tf_data[i] = glm::vec4(0.0f, 0.0f, 1.0f, 0.3f);
-  }
-  for (uint32_t i = i_end + 1; i <= b1; ++i)
-  {
-      tf_data[i] = glm::vec4(0.0f, 0.0f, 1.0f, 0.3f);
+    ImVec4 cB = ui.intersect_color_Bonly;
+    glm::vec3 colB = glm::vec3(cB.x, cB.y, cB.z);
+    float alphaB = cB.w;
+    
+    for (uint32_t i = b0; i < i_start && i <= b1; ++i)
+    {
+      tf_data[i] = glm::vec4(colB, alphaB);
+    }
+    for (uint32_t i = i_end + 1; i <= b1; ++i)
+    {
+      tf_data[i] = glm::vec4(colB, alphaB);
+    }
   }
 
   storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
@@ -596,32 +619,54 @@ void WorkContext::highlight_union(const PersistencePair &a, const PersistencePai
   uint32_t b1 = std::clamp(b.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
   if (b0 > b1) std::swap(b0, b1);
 
-  glm::vec3 colorA = glm::vec3(1.0f, 0.0f, 0.0f);
-  glm::vec3 colorB = glm::vec3(0.0f, 0.0f, 1.0f);
-  glm::vec3 colorAB = glm::vec3(1.0f, 0.0f, 1.0f);
-
-  // mark A befor overlapping
-  for (uint32_t i = a0; i <= a1; ++i)
+  if (ui.union_enabled_Aonly)
   {
-      tf_data[i] = glm::vec4(colorA, 1.0f);
+    ImVec4 cA = ui.union_color_Aonly;
+    glm::vec3 colA = glm::vec3(cA.x, cA.y, cA.z);
+    float alphaA = cA.w;
+
+    for (uint32_t i = a0; i <= a1; ++i)
+    {
+      tf_data[i] = glm::vec4(colA, alphaA);
+    }
   }
-  // mark B and show overlapping
+
   for (uint32_t i = b0; i <= b1; ++i)
   {
-      if (tf_data[i].a == 1.0f)
+    bool voxel_in_A = (i >= a0 && i <= a1);
+    if (voxel_in_A)
+    {
+      if (ui.union_enabled_common)
       {
-          tf_data[i] = glm::vec4(colorAB, 1.0f);
+        ImVec4 cAB = ui.union_color_common;
+        glm::vec3 colAB = glm::vec3(cAB.x, cAB.y, cAB.z);
+        float alphaAB = cAB.w;
+        tf_data[i] = glm::vec4(colAB, alphaAB);
       }
       else
       {
-          tf_data[i] = glm::vec4(colorB, 1.0f);
+        tf_data[i] = glm::vec4(0.0f);
       }
+    }
+    else
+    {
+      if (ui.union_enabled_Bonly)
+      {
+        ImVec4 cB = ui.union_color_Bonly;
+        glm::vec3 colB = glm::vec3(cB.x, cB.y, cB.z);
+        float alphaB = cB.w;
+        tf_data[i] = glm::vec4(colB, alphaB);
+      }
+      else
+      {
+        tf_data[i] = glm::vec4(0.0f);
+      }
+    }
   }
 
   storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
   vmc.logical_device.get().waitIdle();
 }
-
 
 void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
 {

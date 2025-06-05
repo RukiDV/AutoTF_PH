@@ -3,25 +3,48 @@ import numpy as np
 import os
 import sys
 
+SUPPORTED_EXTS = {'.png', '.jpg', '.jpeg', '.pdf', '.svg', '.eps', '.tiff', '.tif', '.webp'}
+
 def plot_persistence_diagram(file_path, output_file_name, output_dir="output_plots", figsize=(10,10), dpi=600, vector=False):
-    # load data
-    persistence_pairs = np.loadtxt(file_path)
+    # check that the input file exists
+    if not os.path.isfile(file_path):
+        print(f"Error: input file not found: {file_path}")
+        sys.exit(1)
+
+    root, ext = os.path.splitext(output_file_name)
+    ext = ext.lower()
+    if ext not in SUPPORTED_EXTS:
+        print(f"Error: unsupported output format '{ext}'.")
+        print(f"Please use one of: {', '.join(sorted(SUPPORTED_EXTS))}")
+        sys.exit(1)
+
+    try:
+        persistence_pairs = np.loadtxt(file_path)
+    except Exception as e:
+        # For example: malformed file, wrong columns, etc.
+        print(f"Error: could not parse '{file_path}': {e}")
+        sys.exit(1)
+
+    if persistence_pairs.ndim != 2 or persistence_pairs.shape[1] < 2:
+        print(f"Error: '{file_path}' does not appear to contain two columns of numbers.")
+        sys.exit(1)
+
     births = persistence_pairs[:, 0]
     deaths = persistence_pairs[:, 1]
     persistence = deaths - births
     max_value = max(np.max(births), np.max(deaths))
 
     # make sure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Error: could not create output directory '{output_dir}': {e}")
+        sys.exit(1)
     output_path = os.path.join(output_dir, output_file_name)
 
-    # create figure with high‐res settings
     if vector:
-        # vector formats ignore DPI but will respect figsize
-        fmt = os.path.splitext(output_file_name)[1].lower().lstrip('.')
         plt.figure(figsize=figsize)
     else:
-        # for raster formats, set figsize and dpi
         plt.figure(figsize=figsize, dpi=dpi)
 
     scatter = plt.scatter(births, deaths, c=persistence, cmap='viridis', alpha=0.8, s=20, edgecolors='none')
@@ -39,17 +62,22 @@ def plot_persistence_diagram(file_path, output_file_name, output_dir="output_plo
 
     save_kwargs = {}
     if vector:
-        save_kwargs['format'] = fmt
+        save_kwargs['format'] = ext.lstrip('.')
     else:
         save_kwargs['dpi'] = dpi
 
-    plt.savefig(output_path, **save_kwargs, bbox_inches='tight', pad_inches=0.02)
-    plt.close()
+    try:
+        plt.savefig(output_path, **save_kwargs, bbox_inches='tight', pad_inches=0.02)
+        plt.close()
+    except Exception as e:
+        print(f"Error: could not write figure to '{output_path}': {e}")
+        sys.exit(1)
+
     print(f"Plot saved to: {output_path}  (figsize={figsize}, dpi={dpi}, vector={vector})")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python persistence_diagram.py <pairs.txt> <output.png> [output_dir] [vector]")
+        print("Usage: python persistence_diagram.py <input_pairs.txt> <output_image.png> [output_dir] [vector]")
         sys.exit(1)
 
     input_file      = sys.argv[1]

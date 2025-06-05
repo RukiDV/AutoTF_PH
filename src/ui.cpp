@@ -14,7 +14,7 @@
 
 namespace ve {
 
-UI::UI(const VulkanMainContext& vmc) : vmc(vmc), normalization_factor(255.0f)
+UI::UI(const VulkanMainContext& vmc) : vmc(vmc), normalization_factor(255.0f), current_pd_mode(0)
 {}
 
 void UI::construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames)
@@ -247,18 +247,19 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         ImGui::Separator();
 
         // pick scalar vs gradient persistence
-        static int pd_mode = 0;
         ImGui::Text("Persistence Pairs Mode:"); ImGui::SameLine();
         bool pd_changed = false;
+        static int pd_mode = 0;
         if (ImGui::RadioButton("Scalar persistence", &pd_mode, 0)) pd_changed = true;
         ImGui::SameLine();
         if (ImGui::RadioButton("Gradient persistence", &pd_mode, 1)) pd_changed = true;
 
-        if (pd_changed && on_merge_mode_changed)
-            on_merge_mode_changed(pd_mode);
-
         if (pd_changed)
         {
+            if (on_merge_mode_changed)
+                on_merge_mode_changed(pd_mode);
+
+            current_pd_mode = pd_mode;
             selected_idx = -1;
             last_highlight_hits.clear();
             multi_selected_idxs.clear();
@@ -709,55 +710,150 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                 ImPlot::PopPlotClipRect();
                 ImPlot::EndPlot();
+                ImGui::NewLine(); ImGui::Spacing();
 
                 // if exactly two points have been ctrl-multi-clicked, show “Apply Diff”
                 if (multi_selected_idxs.size() == 2)
                 {
-                    const PersistencePair &p1 = (*draw_pairs)[ idxs[ multi_selected_idxs[0] ] ];
-                    const PersistencePair &p2 = (*draw_pairs)[ idxs[ multi_selected_idxs[1] ] ];
+                    const PersistencePair &p1 = (*draw_pairs)[idxs[multi_selected_idxs[0]]];
+                    const PersistencePair &p2 = (*draw_pairs)[idxs[multi_selected_idxs[1]]];
+                    bool need_update = false;
 
-                    // difference Button
-                    if (ImGui::Button("Apply Diff"))
+                    // dropdown for set operations
+                    static int selected_set_op = 0;
+                    const char* set_op_names[] = { "Difference", "Intersection", "Union" };
+                    if (ImGui::Combo("Set Operation", &selected_set_op, set_op_names, IM_ARRAYSIZE(set_op_names)))
                     {
-                        if (on_diff_selected)
-                            on_diff_selected(p1, p2);
+                        need_update = true;
                     }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "- Displays only the voxels that belong to A but not to B.\n"
-                            "- Color code: Cyan = A without B\n");
-                    ImGui::SameLine();
+                    ImGui::Separator();
 
-                    // intersection Button
-                    if (ImGui::Button("Apply Intersection"))
+                    // color editor and checkboxes for each operation
+                    if (selected_set_op == 0) // difference
                     {
-                        if (on_intersect_selected)
-                            on_intersect_selected(p1, p2);
+                        // A \ B
+                        if (ImGui::Checkbox("Show A \\ B", &diff_enabled))
+                            need_update = true;
+
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays only the voxels that are in A but not in B.");
+
+                        if (diff_enabled)
+                        {
+                            ImGui::SameLine();
+                            ImGui::Text("Color:");
+                            ImGui::SameLine();
+                            if (ImGui::ColorEdit4("##diff_color", &diff_color.x, ImGuiColorEditFlags_AlphaBar))
+                                need_update = true;
+                        }
+                        ImGui::Separator();
                     }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "- Displays only the voxels that belong to both A and B.\n"
-                            "- Color code:\n"
-                            "   - Orange (100%% opacity): voxels in both A and B\n"
-                            "   - Red    (30%% opacity): voxels only in A\n"
-                            "   - Blue   (30%% opacity): voxels only in B\n");
-                    ImGui::SameLine();
-                
-                    // union Button
-                    if (ImGui::Button("Apply Union"))
+                    else if (selected_set_op == 1) // intersection
                     {
-                        if (on_union_selected)
-                            on_union_selected(p1, p2);
+                        // A ∩ B
+                        if (ImGui::Checkbox("Show A and B", &intersect_enabled_common))
+                            need_update = true;
+
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays the voxels that are both in A and B.");
+
+                        ImGui::SameLine();
+                        ImGui::Text("Color:");
+                        ImGui::SameLine();
+                        if (ImGui::ColorEdit4("##intersect_color_common", &intersect_color_common.x, ImGuiColorEditFlags_AlphaBar))
+                            need_update = true;
+                        ImGui::Separator();
+
+                        // A \ B
+                        if (ImGui::Checkbox("Show A \\ B", &intersect_enabled_Aonly))
+                            need_update = true;
+                        
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays only the voxels that are only in A.");
+
+                        ImGui::SameLine();
+                        ImGui::Text("Color:");
+                        ImGui::SameLine();
+                        if (ImGui::ColorEdit4("##intersect_color_Aonly", &intersect_color_Aonly.x, ImGuiColorEditFlags_AlphaBar))
+                            need_update = true;
+                        ImGui::Separator();
+
+                        // B \ A
+                        if (ImGui::Checkbox("Show B \\ A", &intersect_enabled_Bonly))
+                            need_update = true;
+
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays only the voxels that are only in B.");
+
+                        ImGui::SameLine();
+                        ImGui::Text("Color:");
+                        ImGui::SameLine();
+                        if (ImGui::ColorEdit4("##intersect_color_Bonly", &intersect_color_Bonly.x, ImGuiColorEditFlags_AlphaBar))
+                            need_update = true;
+
                     }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "- Displays all voxels that belong to A or B.\n"
-                            "- Color code:\n"
-                            "  - Red     : voxels only in A\n"
-                            "  - Blue    : voxels only in B\n"
-                            "  - Magenta : voxels in both A and B\n"
-                        );
-                    ImGui::SameLine();
+                    else if (selected_set_op == 2) // union
+                    {
+                        // A \ B
+                        if (ImGui::Checkbox("Show A \\ B", &union_enabled_Aonly))
+                            need_update = true;
+                        
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays all voxels that are only in A.");
+
+                        ImGui::SameLine();
+                        ImGui::Text("Color:");
+                        ImGui::SameLine();
+                        if (ImGui::ColorEdit4("##union_color_Aonly", &union_color_Aonly.x, ImGuiColorEditFlags_AlphaBar))
+                            need_update = true;
+                        ImGui::Separator();
+
+                        // B \ A
+                        if (ImGui::Checkbox("Show B \\ A", &union_enabled_Bonly))
+                            need_update = true;
+
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays all voxels that are only in B.");
+
+                        ImGui::SameLine();
+                        ImGui::Text("Color:");
+                        
+                        ImGui::SameLine();
+                        if (ImGui::ColorEdit4("##union_color_Bonly", &union_color_Bonly.x, ImGuiColorEditFlags_AlphaBar))
+                            need_update = true;
+                        ImGui::Separator();
+
+                        // A ∩ B
+                        if (ImGui::Checkbox("Show A or B", &union_enabled_common))
+                            need_update = true;
+
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Displays all voxels that are in A or B.");
+
+                        ImGui::SameLine();
+                        ImGui::Text("Color:");
+                        ImGui::SameLine();
+                        if (ImGui::ColorEdit4("##union_color_common", &union_color_common.x, ImGuiColorEditFlags_AlphaBar))
+                            need_update = true;
+                    }
+
+                    ImGui::Separator();
+
+                    if (need_update)
+                    {
+                        switch (selected_set_op)
+                        {
+                            case 0: // difference
+                                if (on_diff_selected) on_diff_selected(p1, p2);
+                                break;
+                            case 1: // intersection
+                                if (on_intersect_selected) on_intersect_selected(p1, p2);
+                                break;
+                            case 2: // union
+                                if (on_union_selected) on_union_selected(p1, p2);
+                                break;
+                        }
+                    }
                 }
 
                 ImGui::NewLine(); ImGui::Spacing();

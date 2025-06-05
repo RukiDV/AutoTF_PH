@@ -20,4 +20,4 @@ def plot_persistence_barcodes(file_path, max_bars=10000):
     plt.grid(True)
     plt.show()
 
-plot_persistence_barcodes("persistence_pairs.txt")
+plot_persistence_barcodes("volume_data/persistence_pairs.txt")

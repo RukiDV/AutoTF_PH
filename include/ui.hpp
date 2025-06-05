@@ -27,10 +27,29 @@ public:
     RAMP_CUSTOM   = 5
   };
   explicit UI(const VulkanMainContext& vmc);
+
+  int selected_ramp = RAMP_VIRIDIS; 
+  ImVec4 custom_start_color {1,1,0,1};
+  ImVec4 custom_end_color   {1,0,1,1};
+  float custom_opacity_falloff = 1.0f;
+  ImVec4 diff_color = ImVec4(0.0f, 1.0f, 1.0f, 1.0f);
+  bool diff_enabled = true;        
+  ImVec4 intersect_color_common = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
+  bool intersect_enabled_common = true;
+  ImVec4 intersect_color_Aonly = ImVec4(1.0f, 0.0f, 0.0f, 0.3f); 
+  bool intersect_enabled_Aonly = true;
+  ImVec4 intersect_color_Bonly = ImVec4(0.0f, 0.0f, 1.0f, 0.3f);
+  bool intersect_enabled_Bonly = true;
+  ImVec4 union_color_Aonly = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+  bool union_enabled_Aonly = true;
+  ImVec4 union_color_Bonly = ImVec4(0.0f, 0.0f, 1.0f, 1.0f);
+  bool union_enabled_Bonly = true;
+  ImVec4 union_color_common = ImVec4(1.0f, 0.0f, 1.0f, 1.0f);
+  bool union_enabled_common = true;
+
   void construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames);
   void destruct();
   void draw(vk::CommandBuffer& cb, AppState& app_state);
-
   void set_transfer_function(TransferFunction* transfer_function);
   void set_volume(const Volume* volume);
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs);
@@ -45,27 +64,15 @@ public:
   void set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&, int)>& cb);
   void set_on_highlight_selected(const std::function<void(const std::vector<std::pair<PersistencePair,float>>&,int)>& cb);
   void clear_selection();
-
-  const Volume* get_volume() const { return volume; }
-
-  void mark_merge_tree_dirty();
-
-  int selected_ramp = RAMP_VIRIDIS; 
-  ImVec4 custom_start_color {1,1,0,1};
-  ImVec4 custom_end_color   {1,0,1,1};
-  float  custom_opacity_falloff = 1.0f;
-
-  ImVec4 get_custom_start_color() const { return custom_start_color; }
-  ImVec4 get_custom_end_color()   const { return custom_end_color; }
-  float  get_custom_falloff()     const { return custom_opacity_falloff; }
-
   void set_on_diff_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
   void set_on_intersect_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
   void set_on_union_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
+  void mark_merge_tree_dirty();
+  const Volume* get_volume() const { return volume; }
+  ImVec4 get_custom_start_color() const { return custom_start_color; }
+  ImVec4 get_custom_end_color() const { return custom_end_color; }
+  float  get_custom_falloff() const { return custom_opacity_falloff; }
 
-  int diff_idx0 = -1;
-  int diff_idx1 = -1;
-  
   private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
@@ -73,9 +80,6 @@ public:
   TransferFunction* transfer_function = nullptr;
   const Volume* volume = nullptr;
   ImTextureID persistence_texture_ID = (ImTextureID)0;
-  std::function<void(const PersistencePair&)> on_pair_selected;
-  std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
-  
   bool cache_dirty = true;
   bool show_dots = true;
   bool range_active = false;
@@ -87,35 +91,36 @@ public:
   float death_range[2] = { 0.0f, 255.0f};
   float persistence_range[2] = { 0.0f, 255.0f};
   float blink_timer = 0.0f;
-  const std::vector<PersistencePair>* persistence_pairs = nullptr;
-  std::vector<double> xs, ys;
-  std::vector<float > pers;
-  std::vector<ImVec2> dot_pos;
   int selected_idx = -1; // –1 means “no selection”
-  ImU32  selected_color = IM_COL32(255,0,255,255);
-  
-  std::vector<int> multi_selected_idxs;
-  std::vector<ImU32> multi_selected_cols;
+  ImU32 selected_color = IM_COL32(255,0,255,255);
   bool brush_active = false;
   ImVec2 brush_start;
   ImVec2 brush_end;
   float brush_outer_mult = 1.0f;
   float brush_inner_ratio = 0.7f;  
-  const std::vector<PersistencePair>* gradient_pairs = nullptr;
   bool use_gradient_pd = false;
-  std::function<void(int)> on_merge_mode_changed;
   bool mt_dirty = true;
+  bool use_highlight_opacity = false;
+  float highlight_opacity = 1.0f;
+  int current_pd_mode = 0;  
+  int selected_set_op = 0; // 0: diff, 1: intersect, 2: union
+  std::function<void(const PersistencePair&)> on_pair_selected;
+  std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
+  const std::vector<PersistencePair>* persistence_pairs = nullptr;
+  std::vector<double> xs, ys;
+  std::vector<float > pers;
+  std::vector<ImVec2> dot_pos;
+  std::vector<int> multi_selected_idxs;
+  std::vector<ImU32> multi_selected_cols;
+  const std::vector<PersistencePair>* gradient_pairs = nullptr;
   std::vector<std::pair<ImVec2,ImVec2>> mt_edges;
   std::vector<std::pair<ImVec2, uint32_t>> mt_nodes; 
-  
+  std::vector<std::pair<PersistencePair,float>> last_highlight_hits;
+  std::function<void(int)> on_merge_mode_changed;
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
   std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp)> on_brush_selected_gradient;
   std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp_index)> on_highlight_selected;
-  std::vector<std::pair<PersistencePair,float>> last_highlight_hits;
-  
-  bool use_highlight_opacity = false;
-  float highlight_opacity = 1.0f;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_diff_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_intersect_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_union_selected;
