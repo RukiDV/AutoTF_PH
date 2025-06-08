@@ -30,7 +30,7 @@ public:
 
   int selected_ramp = RAMP_VIRIDIS; 
   ImVec4 custom_start_color {1,1,0,1};
-  ImVec4 custom_end_color   {1,0,1,1};
+  ImVec4 custom_end_color {1,0,1,1};
   float custom_opacity_falloff = 1.0f;
   ImVec4 diff_color = ImVec4(0.0f, 1.0f, 1.0f, 1.0f);
   bool diff_enabled = true;        
@@ -68,10 +68,13 @@ public:
   void set_on_intersect_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
   void set_on_union_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
   void mark_merge_tree_dirty();
+  void set_on_custom_color_chosen(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb);
+  void set_on_clear_custom_colors(const std::function<void()>& cb);
   const Volume* get_volume() const { return volume; }
   ImVec4 get_custom_start_color() const { return custom_start_color; }
   ImVec4 get_custom_end_color() const { return custom_end_color; }
-  float  get_custom_falloff() const { return custom_opacity_falloff; }
+  float get_custom_falloff() const { return custom_opacity_falloff; }
+  int get_selected_ramp() const { return selected_ramp; }
 
   private:
   const VulkanMainContext& vmc;
@@ -102,10 +105,8 @@ public:
   bool mt_dirty = true;
   bool use_highlight_opacity = false;
   float highlight_opacity = 1.0f;
-  int current_pd_mode = 0;  
   int selected_set_op = 0; // 0: diff, 1: intersect, 2: union
-  std::function<void(const PersistencePair&)> on_pair_selected;
-  std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
+  ImVec4 selected_brush_color{1,0,0,1};
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<double> xs, ys;
   std::vector<float > pers;
@@ -116,6 +117,11 @@ public:
   std::vector<std::pair<ImVec2,ImVec2>> mt_edges;
   std::vector<std::pair<ImVec2, uint32_t>> mt_nodes; 
   std::vector<std::pair<PersistencePair,float>> last_highlight_hits;
+  std::vector<std::vector<int>> brush_clusters;
+  std::vector<ImVec4> brush_cluster_colors;
+  std::vector<ImU32> brush_cluster_outlines;
+  std::vector<int> region_selected_idxs;
+  std::vector<ImVec4> selected_custom_colors_per_point;
   std::function<void(int)> on_merge_mode_changed;
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
@@ -124,5 +130,9 @@ public:
   std::function<void(const PersistencePair&, const PersistencePair&)> on_diff_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_intersect_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_union_selected;
+  std::function<void(const PersistencePair&)> on_pair_selected;
+  std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
+  std::function<void()> on_clear_custom_colors;
+  std::function<void(const std::vector<PersistencePair>&, const ImVec4&)> on_color_chosen{};
 };
 } // namespace ve

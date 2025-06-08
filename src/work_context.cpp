@@ -31,6 +31,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_transfer_function(&transfer_function);
   ui.set_volume(scalar_volume);
 
+  ui.selected_ramp = UI::RAMP_VIRIDIS;
   // compute and set scalar persistence pairs
   std::vector<int> filt_vals;
   persistence_pairs = calculate_persistence_pairs(volume, filt_vals, app_state.filtration_mode);
@@ -90,19 +91,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
   ui.set_on_highlight_selected([this](const std::vector<std::pair<PersistencePair,float>>& hits, int ramp_index)
   {
-    if (current_pd_mode == 0)
-    {
-      std::vector<PersistencePair> plain_pairs;
-      plain_pairs.reserve(hits.size());
-      for (auto &entry : hits)
-          plain_pairs.push_back(entry.first);
-
-      this->volume_highlight_persistence_pairs(plain_pairs);
-    }
-    else
-    {
-      this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
-    }
+    this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
   });
 
   ui.set_on_diff_selected([this](const PersistencePair &a, const PersistencePair &b) {
@@ -114,6 +103,16 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   });
   ui.set_on_union_selected([this](const PersistencePair &a, const PersistencePair &b) {
       this->highlight_union(a, b);
+  });
+
+  ui.set_on_custom_color_chosen([this](const std::vector<PersistencePair>& pairs, const ImVec4& color)
+  {
+    this->apply_custom_color_to_volume(pairs, color);
+  });
+
+  ui.set_on_clear_custom_colors([this]()
+  {
+    this->reset_custom_colors();
   });
 
   export_persistence_pairs_to_csv(persistence_pairs, gradient_persistence_pairs, "scalar_pairs.csv", "gradient_pairs.csv");
@@ -380,7 +379,7 @@ void WorkContext::isolate_persistence_pairs(const std::vector<PersistencePair>& 
 {
    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
 
-    // use the stored global max, not recompute from `pairs`
+    // use the stored global max, not recompute from pairs
     uint32_t maxPers = std::max(global_max_persistence, 1u);
 
     for (auto &p : pairs)
@@ -405,7 +404,6 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<Persisten
 {
     std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
     uint32_t maxPers = std::max(global_max_persistence, 1u);
-
     for (auto &p : pairs)
     {
         uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
@@ -413,14 +411,26 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<Persisten
         float hue  = (1.0f - norm) * 240.0f;
         glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
 
-        uint32_t bi = std::clamp(p.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-        uint32_t di = std::clamp(p.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-        if (bi > di) std::swap(bi, di);
-        for (uint32_t i = bi; i <= di; ++i)
+        uint32_t b = std::clamp(p.birth, uint32_t(0), uint32_t(255));
+        uint32_t d = std::clamp(p.death, uint32_t(0), uint32_t(255));
+        if (b > d) std::swap(b, d);
+        for (uint32_t i = b; i <= d; ++i)
             tf_data[i] = glm::vec4(rgb, 1.0f);
     }
 
-    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+    for (auto &assign : custom_colors)
+    {
+        const auto &p   = assign.first;
+        const auto &col = assign.second;
+
+        uint32_t b = std::clamp(p.birth,  uint32_t(0), uint32_t(255));
+        uint32_t d = std::clamp(p.death,  uint32_t(0), uint32_t(255));
+        if (b > d) std::swap(b, d);
+        for (uint32_t i = b; i <= d; ++i)
+            tf_data[i] = col;
+    }
+    auto &tf_buf = storage.get_buffer_by_name("transfer_function");
+    tf_buf.update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
     vmc.logical_device.get().waitIdle();
 }
 
@@ -428,8 +438,8 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
 {
   std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
 
+  // 2) Apply the selected ramp coloring for each brush hit
   uint32_t max_pers = std::max(global_max_persistence, 1u);
-
   for (auto &entry : pairs)
   {
     const PersistencePair &p = entry.first;
@@ -444,7 +454,7 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
     {
       case UI::RAMP_HSV:
       {
-        float hue = (1.0f - tColor) * 0.66f; 
+        float hue = (1.0f - tColor) * 0.66f;
         float r, g, b;
         ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
         rgb = glm::vec3(r, g, b);
@@ -453,56 +463,61 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
       case UI::RAMP_VIRIDIS:
         rgb = viridis(tColor);
         break;
-
       case UI::RAMP_PLASMA:
         rgb = plasma(tColor);
         break;
-
       case UI::RAMP_MAGMA:
         rgb = magma(tColor);
         break;
-
       case UI::RAMP_INFERNO:
         rgb = inferno(tColor);
         break;
-
       case UI::RAMP_CUSTOM:
       {
         ImVec4 sc = ui.get_custom_start_color();
         ImVec4 ec = ui.get_custom_end_color();
-        glm::vec3 c0 = glm::vec3(sc.x, sc.y, sc.z);
-        glm::vec3 c1 = glm::vec3(ec.x, ec.y, ec.z);
+        glm::vec3 c0{sc.x, sc.y, sc.z};
+        glm::vec3 c1{ec.x, ec.y, ec.z};
         rgb = glm::mix(c0, c1, tColor);
         break;
       }
-
       default:
-          {
-            float hue = (1.0f - tColor) * 0.66f;
-            float r, g, b;
-            ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
-            rgb = glm::vec3(r, g, b);
-          }
+      {
+        float hue = (1.0f - tColor) * 0.66f;
+        float r, g, b;
+        ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
+        rgb = glm::vec3(r, g, b);
           break;
-    }
+        }
+      }
 
-    float alpha = brush_op;
-    if (ramp_index == UI::RAMP_CUSTOM)
-    {
+      float alpha = brush_op;
+      if (ramp_index == UI::RAMP_CUSTOM)
         alpha *= ui.get_custom_falloff();
-    }
 
-    uint32_t bi = std::clamp(p.birth,  uint32_t(0), uint32_t(255));
-    uint32_t di = std::clamp(p.death,  uint32_t(0), uint32_t(255));
-    if (bi > di) std::swap(bi, di);
+      uint32_t bi = std::clamp(p.birth, uint32_t(0), uint32_t(255));
+      uint32_t di = std::clamp(p.death, uint32_t(0), uint32_t(255));
+      if (bi > di) std::swap(bi, di);
 
-    for (uint32_t i = bi; i <= di; ++i)
-    {
-      tf_data[i] = glm::vec4(rgb, alpha);
-    }
+      for (uint32_t i = bi; i <= di; ++i)
+        tf_data[i] = glm::vec4(rgb, alpha);
   }
 
-  storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  for (auto &assign : custom_colors)
+  {
+    const auto &p = assign.first;
+    const auto &col = assign.second;
+
+    uint32_t b = std::clamp(p.birth, uint32_t(0), uint32_t(255));
+    uint32_t d = std::clamp(p.death, uint32_t(0), uint32_t(255));
+    if (b > d) std::swap(b, d);
+
+    for (uint32_t i = b; i <= d; ++i)
+      tf_data[i] = col;
+  }
+
+  auto &tf_buf = storage.get_buffer_by_name("transfer_function");
+  tf_buf.update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
   vmc.logical_device.get().waitIdle();
 }
 
@@ -719,4 +734,50 @@ void WorkContext::export_persistence_pairs_to_csv(const std::vector<PersistenceP
 
   std::cout << "Exported persistence pairs to:\n" << "  - " << scalar_filename  << "\n" << "  - " << gradient_filename << "\n";
 }
-} // namespace ve
+
+void WorkContext::apply_custom_color_to_volume(const std::vector<PersistencePair>& pairs, const ImVec4& color)
+{
+  glm::vec4 chosen_color(color.x, color.y, color.z, color.w);
+
+  // record every new assignment
+  for (auto &p : pairs)
+  {
+      custom_colors.emplace_back(p, chosen_color);
+  }
+
+  auto &tf_buf = storage.get_buffer_by_name("transfer_function");
+  std::vector<glm::vec4> tf_data = tf_buf.obtain_all_data<glm::vec4>();
+
+  // replay *all* custom assignments
+  for (auto &assign : custom_colors)
+  {
+    const auto &p = assign.first;
+    const auto &col = assign.second;
+    uint32_t b = std::clamp(p.birth, uint32_t(0), uint32_t(255));
+    uint32_t d = std::clamp(p.death, uint32_t(0), uint32_t(255));
+    if (b > d) std::swap(b, d);
+    for (uint32_t i = b; i <= d; ++i)
+    {
+        tf_data[i] = col;
+    }
+  }
+
+  tf_buf.update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
+  vmc.logical_device.get().waitIdle();
+}
+
+void WorkContext::reset_custom_colors()
+{
+  ui.clear_selection();
+  custom_colors.clear();
+
+  int ramp = ui.get_selected_ramp();
+
+  std::vector<std::pair<PersistencePair, float>> all_hits;
+  all_hits.reserve(persistence_pairs.size());
+  for (const auto &p : persistence_pairs)
+      all_hits.emplace_back(p, 1.0f);
+
+  volume_highlight_persistence_pairs_gradient(all_hits, ramp);
+}
+}//namespace ve

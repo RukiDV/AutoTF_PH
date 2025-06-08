@@ -14,7 +14,7 @@
 
 namespace ve {
 
-UI::UI(const VulkanMainContext& vmc) : vmc(vmc), normalization_factor(255.0f), current_pd_mode(0)
+UI::UI(const VulkanMainContext& vmc) : vmc(vmc), normalization_factor(255.0f)
 {}
 
 void UI::construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames)
@@ -154,6 +154,15 @@ void UI::set_on_union_selected(const std::function<void(const PersistencePair&, 
     on_union_selected = cb;
 }
 
+void UI::set_on_custom_color_chosen(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb)
+{
+on_color_chosen = cb;
+}
+
+void UI::set_on_clear_custom_colors(const std::function<void()>& cb)
+{ 
+    on_clear_custom_colors = cb;
+}
 
 void UI::clear_selection()
 {
@@ -162,8 +171,13 @@ void UI::clear_selection()
     last_highlight_hits.clear();
     multi_selected_idxs.clear();
     multi_selected_cols.clear();
+    selected_custom_colors_per_point.clear();
+    selected_brush_color = ImVec4{1,0,0,1};
+    brush_clusters.clear();
+    brush_cluster_colors.clear();
+    brush_cluster_outlines.clear();
+    region_selected_idxs.clear();
 }
-
 
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 {
@@ -259,7 +273,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             if (on_merge_mode_changed)
                 on_merge_mode_changed(pd_mode);
 
-            current_pd_mode = pd_mode;
             selected_idx = -1;
             last_highlight_hits.clear();
             multi_selected_idxs.clear();
@@ -607,13 +620,15 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         brush_active = false;
                         float dx = brush_end.x - brush_start.x;
                         float dy = brush_end.y - brush_start.y;
-                        // apply user multiplier
                         float raw_r2 = dx*dx + dy*dy;
                         float max_r2 = raw_r2 * brush_outer_mult * brush_outer_mult;
                         float inner_r2 = max_r2 * brush_inner_ratio * brush_inner_ratio;
 
-                        std::vector<std::pair<PersistencePair, float>> brush_sel;
+                        std::vector<std::pair<PersistencePair,float>> brush_sel;
+                        std::vector<int> brush_hit_idxs;
                         brush_sel.reserve(dot_pos.size());
+                        brush_hit_idxs.reserve(dot_pos.size());
+
                         for (size_t i = 0; i < dot_pos.size(); ++i)
                         {
                             float ddx = dot_pos[i].x - brush_start.x;
@@ -623,10 +638,24 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             {
                                 float opacity = (dist2 <= inner_r2) ? 1.0f : 1.0f - (std::sqrt(dist2) - std::sqrt(inner_r2)) / (std::sqrt(max_r2) - std::sqrt(inner_r2));
                                 float final_op = opacity * highlight_opacity;
-                                brush_sel.emplace_back((*draw_pairs)[idxs[i]], final_op); 
+                                brush_sel.emplace_back((*draw_pairs)[idxs[i]], final_op);
+                                brush_hit_idxs.push_back(idxs[i]);
                             }
                         }
                         last_highlight_hits = brush_sel;
+
+                        ImGuiIO& io = ImGui::GetIO();
+                        if (io.KeyCtrl)
+                        {
+                            // add cluster
+                            brush_clusters.push_back(brush_hit_idxs);
+                            // pick an outline color
+                            float hue = float(brush_clusters.size()-1) / 6.0f;
+                            float r, g, b;
+                            ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
+                            brush_cluster_outlines.push_back(IM_COL32(int(r*255),int(g*255),int(b*255),255));
+                            brush_cluster_colors.push_back(ImVec4{1,1,1,1});
+                        }
                         if (!brush_sel.empty() && on_highlight_selected)
                             on_highlight_selected(brush_sel, selected_ramp);
                     }
@@ -670,6 +699,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 if (it == multi_selected_idxs.end())
                                 {
                                     multi_selected_idxs.push_back(best_i);
+                                    selected_custom_colors_per_point.push_back(ImVec4(1,1,1,1));
                                     float hue = float(multi_selected_idxs.size()-1) / 6.0f;
                                     float r,g,b;
                                     ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
@@ -705,6 +735,27 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         ImVec2 pos = dot_pos[k];
                         dl->AddCircleFilled(pos, marker_size + 1.5f, multi_selected_cols[m]);
                         dl->AddCircle(pos, marker_size + 3.0f, IM_COL32(255,255,255,200), 16, 2.0f);
+                    }
+
+                    for (size_t ci = 0; ci < brush_clusters.size(); ++ci)
+                    {
+                        ImU32 col = brush_cluster_outlines[ci];
+                        for (int dotIdx : brush_clusters[ci])
+                        {
+                            ImVec2 pos = dot_pos[dotIdx];
+                            dl->AddCircle(pos, marker_size+2.0f, col, 12, 2.0f);
+                        }
+                    }
+
+                    if (!region_selected_idxs.empty())
+                    {
+                        for (int ridx : region_selected_idxs)
+                        {
+                            ImVec2 pos = dot_pos[ridx];
+                            dl->AddCircle(pos, marker_size + 2.0f,
+                                        IM_COL32(255,255,0,200),
+                                        12, 2.0f);
+                        }
                     }
                 }
 
@@ -1214,9 +1265,59 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             }
             ImGui::EndChild();
         }
+
+        while (selected_custom_colors_per_point.size() < last_highlight_hits.size())
+            selected_custom_colors_per_point.push_back(ImVec4{1,1,1,1});
+        while (selected_custom_colors_per_point.size() > last_highlight_hits.size())
+            selected_custom_colors_per_point.pop_back();
+
+        if (!brush_clusters.empty())
+        {
+            ImGui::Separator();
+            ImGui::Text("Choose colors for brush-clusters:");
+
+            const auto* dp = (pd_mode == 1 && gradient_pairs) ? gradient_pairs : persistence_pairs;
+
+            for (size_t ci = 0; ci < brush_clusters.size(); ++ci)
+            {
+                std::string label = "Cluster " + std::to_string(ci) + " Color##brush_color" + std::to_string(ci);
+                if (ImGui::ColorEdit4(label.c_str(), &brush_cluster_colors[ci].x, ImGuiColorEditFlags_AlphaBar))
+                {
+                    std::vector<PersistencePair> pairs;
+                    pairs.reserve(brush_clusters[ci].size());
+                    for (int di : brush_clusters[ci])
+                        pairs.push_back((*dp)[di]);
+                    on_color_chosen(pairs, brush_cluster_colors[ci]);
+                }
+            }
+        }
+        // ctrl-clicked points, show per-point pickers
+        else if (!multi_selected_idxs.empty())
+        {
+            ImGui::Separator();
+            ImGui::Text("Choose colors for selected points:");
+
+            // make sure we have one color slot per selected point
+            while (selected_custom_colors_per_point.size() < multi_selected_idxs.size())
+                selected_custom_colors_per_point.push_back(ImVec4{1,1,1,1});
+
+            for (size_t i = 0; i < multi_selected_idxs.size(); ++i)
+            {
+                std::string label = "Point " + std::to_string(i) + " Color##custom_color" + std::to_string(i);
+                if (ImGui::ColorEdit4(label.c_str(), &selected_custom_colors_per_point[i].x, ImGuiColorEditFlags_AlphaBar))
+                {
+                    std::vector<PersistencePair> single{ last_highlight_hits[i].first };
+                    on_color_chosen(single, selected_custom_colors_per_point[i]);
+                }
+            }
+        }
+        if (ImGui::Button("Clear Custom Colors"))
+        {
+            if (on_clear_custom_colors) on_clear_custom_colors();
+            clear_selection();
+        }
     }
     ImGui::End();
-
     ImGui::EndFrame();
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cb);
