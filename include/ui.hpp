@@ -28,7 +28,7 @@ public:
   };
   explicit UI(const VulkanMainContext& vmc);
 
-  int selected_ramp = RAMP_VIRIDIS; 
+  int selected_ramp = RAMP_HSV; 
   ImVec4 custom_start_color {1,1,0,1};
   ImVec4 custom_end_color {1,0,1,1};
   float custom_opacity_falloff = 1.0f;

@@ -306,8 +306,20 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         if (selected_ramp != prev_ramp)
         {
             prev_ramp = selected_ramp;
-            if (!last_highlight_hits.empty() && on_highlight_selected)
-                on_highlight_selected(last_highlight_hits, selected_ramp);
+            std::vector<std::pair<PersistencePair,float>> hits;
+            if (!last_highlight_hits.empty())
+            {
+                hits = last_highlight_hits;
+            } else
+            {
+                const auto* dp = (pd_mode == 1 && gradient_pairs) ? gradient_pairs : persistence_pairs;
+                hits.reserve(dp->size());
+                for (auto &p : *dp)
+                    hits.emplace_back(p, highlight_opacity);
+            }
+
+            if (on_highlight_selected)
+                on_highlight_selected(hits, selected_ramp);
         }
 
         if (selected_ramp == RAMP_CUSTOM)

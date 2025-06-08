@@ -31,7 +31,6 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ui.set_transfer_function(&transfer_function);
   ui.set_volume(scalar_volume);
 
-  ui.selected_ramp = UI::RAMP_VIRIDIS;
   // compute and set scalar persistence pairs
   std::vector<int> filt_vals;
   persistence_pairs = calculate_persistence_pairs(volume, filt_vals, app_state.filtration_mode);
@@ -54,7 +53,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   merge_tree = build_merge_tree_with_tolerance(persistence_pairs, 5u);
   ui.set_merge_tree(&merge_tree);
 
-  // switching between scalar/gradient persistence
+  // switching between scalar/gradient persistenceColor Ramp
   ui.set_on_merge_mode_changed([this](int mode)
   {
     if (mode == 0)
