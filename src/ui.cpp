@@ -164,6 +164,22 @@ void UI::set_on_clear_custom_colors(const std::function<void()>& cb)
     on_clear_custom_colors = cb;
 }
 
+void UI::set_gradient_volume(const Volume* vol)
+{
+    gradient_volume = vol;
+    tf2d_hist_dirty = true; 
+}
+
+void UI::set_on_tf2d_selected(const std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)>& cb)
+{
+    on_tf2d_selected = cb;
+}
+
+void UI::mark_tf2d_hist_dirty()
+{
+    tf2d_hist_dirty = true;
+}
+
 void UI::clear_selection()
 {
     selected_idx = -1;
@@ -1278,6 +1294,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImGui::EndChild();
         }
 
+        // Custom color selection
         while (selected_custom_colors_per_point.size() < last_highlight_hits.size())
             selected_custom_colors_per_point.push_back(ImVec4{1,1,1,1});
         while (selected_custom_colors_per_point.size() > last_highlight_hits.size())
@@ -1328,6 +1345,133 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             if (on_clear_custom_colors) on_clear_custom_colors();
             clear_selection();
         }
+    }
+    ImGui::End();
+
+    static float brush_radius_px = 8.0f;
+    ImGui::SliderFloat("Brush Radius (px)", &brush_radius_px, 1.0f, 64.0f, "%.1f");
+
+    ImGui::Begin("2D TF Editor");
+    if (volume && gradient_volume)
+    {
+        constexpr int SB = TF2D_BINS; // scalar bins
+        constexpr int GB = TF2D_BINS; // gradient bins
+
+        // compute scalar and gradient ranges
+        auto [smin, smax] = transfer_function->compute_min_max_scalar(*volume);
+        float gmin = FLT_MAX, gmax = -FLT_MAX;
+        for (auto raw : gradient_volume->data)
+        {
+            float f = float(raw);
+            gmin = std::min(gmin, f);
+            gmax = std::max(gmax, f);
+        }
+        ImGui::Text("Scalar [%.2f -> %.2f]   Gradient [%.2f → %.2f]", smin, smax, gmin, gmax);
+
+        // percentile clipping controls
+        static float sClipP = 1.0f, gClipP = 1.0f;
+        ImGui::SliderFloat("Scalar Clip Percentile", &sClipP, 0.5f, 1.0f, "p = %.2f");
+        ImGui::SliderFloat("Gradient Clip Percentile", &gClipP, 0.5f, 1.0f, "p = %.2f");
+        ImGui::Separator();
+
+        // figure thresholds
+        std::vector<float> svals(volume->data.begin(), volume->data.end());
+        std::vector<float> gvals(gradient_volume->data.begin(), gradient_volume->data.end());
+        size_t sIdx = size_t(sClipP * (svals.size() - 1));
+        size_t gIdx = size_t(gClipP * (gvals.size() - 1));
+        std::nth_element(svals.begin(), svals.begin() + sIdx, svals.end());
+        std::nth_element(gvals.begin(), gvals.begin() + gIdx, gvals.end());
+        float smaxThr = svals[sIdx], gmaxThr = gvals[gIdx];
+        ImGui::Text("Clipped -> Scalar max = %.2f   Gradient max = %.2f", smaxThr, gmaxThr);
+
+        // build joint histogram
+        std::vector<double> hist(SB*GB, 0.0);
+        for (size_t i = 0; i < volume->data.size(); ++i)
+        {
+            float sv = (volume->data[i] - smin) / (smaxThr - smin + 1e-6f);
+            float gv = (gradient_volume->data[i] - gmin) / (gmaxThr - gmin + 1e-6f);
+            int bx = std::clamp(int(sv * (SB-1)), 0, SB-1);
+            int by = std::clamp(int(gv * (GB-1)), 0, GB-1);
+            hist[by*SB + bx] += 1.0;
+        }
+
+        // brush radius slider
+        static float brush_radius_px = 8.0f;
+        ImGui::SliderFloat("Brush Radius (px)", &brush_radius_px, 1.0f, 64.0f, "%.1f");
+
+        // render heatmap and paint-brush logic
+        if (ImPlot::BeginPlot("##TF2D", ImVec2(-1,300)))
+        {
+            ImPlot::SetupAxes("Scalar","Gradient");
+            ImPlot::SetupAxisLimits(ImAxis_X1, 0, SB, ImPlotCond_Always);
+            ImPlot::SetupAxisLimits(ImAxis_Y1, 0, GB, ImPlotCond_Always);
+
+            ImPlot::PushColormap(ImPlotColormap_Viridis);
+            ImPlot::PlotHeatmap("##hist2d", hist.data(), GB, SB, 0, SB-1, "", ImPlotPoint(0,0), ImPlotPoint(SB,GB), ImPlotHeatmapFlags_None);
+            ImPlot::PopColormap();
+
+            // paint brush state
+            static std::vector<std::pair<int,int>> painted_bins;
+            ImGuiIO& io = ImGui::GetIO();
+
+            if (ImPlot::IsPlotHovered())
+            {
+                // stamping while button down
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                {
+                    ImVec2 mpos = io.MousePos;
+                    ImPlotPoint pp = ImPlot::PixelsToPlot(mpos);
+                    int cx = std::clamp(int(std::round(pp.x)), 0, SB-1);
+                    int cy = std::clamp(int(std::round(pp.y)), 0, GB-1);
+
+                    ImVec2 p0 = ImPlot::PlotToPixels(0,0);
+                    ImVec2 p1 = ImPlot::PlotToPixels(double(SB),double(GB));
+                    float px_per_bin_x = (p1.x - p0.x)/float(SB);
+                    float px_per_bin_y = (p1.y - p0.y)/float(GB);
+                    int rx = std::max(1, int(std::ceil(brush_radius_px/px_per_bin_x)));
+                    int ry = std::max(1, int(std::ceil(brush_radius_px/px_per_bin_y)));
+
+                    // stamp circle of bins
+                    for (int by = cy-ry; by <= cy+ry; ++by)
+                    {
+                        if (by<0||by>=GB) continue;
+                        for (int bx = cx-rx; bx <= cx+rx; ++bx)
+                        {
+                            if (bx<0||bx>=SB) continue;
+                            float dx = (bx-cx)*px_per_bin_x;
+                            float dy = (by-cy)*px_per_bin_y;
+                            if (dx*dx+dy*dy <= brush_radius_px*brush_radius_px)
+                                painted_bins.emplace_back(bx,by);
+                        }
+                    }
+                }
+
+                // on mouse‐release, fire callback then clear
+                static bool was_down = false;
+                bool now_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+                if (was_down && !now_down && !painted_bins.empty() && on_tf2d_selected)
+                {
+                    on_tf2d_selected(painted_bins, tf2d_color);
+                    painted_bins.clear();
+                }
+                was_down = now_down;
+
+                // draw circle cursor
+                ImDrawList* fg = ImGui::GetForegroundDrawList();
+                fg->AddCircle(io.MousePos, brush_radius_px, IM_COL32(255,255,0,150), 32, 2.0f);
+            }
+
+            // draw painted points overlay
+            ImDrawList* pd = ImPlot::GetPlotDrawList();
+            ImU32 col = ImGui::ColorConvertFloat4ToU32(tf2d_color);
+            for (auto &b : painted_bins)
+            {
+                ImVec2 p = ImPlot::PlotToPixels(double(b.first), double(b.second));
+                pd->AddCircleFilled(p, brush_radius_px, col, 32);
+            }
+            ImPlot::EndPlot();
+        }
+        ImGui::ColorEdit4("TF2D Color", &tf2d_color.x, ImGuiColorEditFlags_AlphaBar);
     }
     ImGui::End();
     ImGui::EndFrame();

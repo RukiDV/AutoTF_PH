@@ -29,6 +29,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   ray_marcher.construct(app_state, vcc, volume.resolution);
   ui.construct(vcc, swapchain.get_render_pass(), frames_in_flight);
   ui.set_transfer_function(&transfer_function);
+  scalar_volume = &volume;
   ui.set_volume(scalar_volume);
 
   // compute and set scalar persistence pairs
@@ -53,6 +54,12 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   merge_tree = build_merge_tree_with_tolerance(persistence_pairs, 5u);
   ui.set_merge_tree(&merge_tree);
 
+  ui.set_gradient_volume(&gradient_volume);
+
+  ui.set_on_tf2d_selected([this](const std::vector<std::pair<int,int>>& bins, const ImVec4& color){
+        this->apply_2d_tf_selection(bins, color);
+    });
+
   // switching between scalar/gradient persistenceColor Ramp
   ui.set_on_merge_mode_changed([this](int mode)
   {
@@ -61,7 +68,6 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
       // scalar mode
       ui.set_persistence_pairs(&persistence_pairs);
       ui.set_gradient_persistence_pairs(nullptr);
-      ui.set_volume(scalar_volume);
 
       if (scalar_volume && !persistence_pairs.empty())
       {
@@ -73,7 +79,6 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
       // gradient mode
       ui.set_persistence_pairs(nullptr);
       ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
-      ui.set_volume(&gradient_volume);
 
       if (&gradient_volume && !gradient_persistence_pairs.empty())
       {
@@ -86,6 +91,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
     merge_tree = build_merge_tree_with_tolerance((mode == 0 ? persistence_pairs : gradient_persistence_pairs), 5u);
     ui.mark_merge_tree_dirty();
     ui.clear_selection();
+    ui.mark_tf2d_hist_dirty();
   });
 
   ui.set_on_highlight_selected([this](const std::vector<std::pair<PersistencePair,float>>& hits, int ramp_index)
@@ -778,5 +784,52 @@ void WorkContext::reset_custom_colors()
       all_hits.emplace_back(p, 1.0f);
 
   volume_highlight_persistence_pairs_gradient(all_hits, ramp);
+}
+
+void WorkContext::apply_2d_tf_selection(const std::vector<std::pair<int,int>>& bins, const ImVec4& color)
+{
+  // pull in the bin count from the UI:
+  constexpr int SB = ve::UI::TF2D_BINS;
+  constexpr int GB = ve::UI::TF2D_BINS;
+
+  auto &tf_buf = storage.get_buffer_by_name("transfer_function");
+  std::vector<glm::vec4> tf_data = tf_buf.obtain_all_data<glm::vec4>();
+
+  glm::vec4 chosenColor{color.x, color.y, color.z, color.w};
+
+  // build a 2D lookup table of selected bins
+  std::vector<std::vector<bool>> sel(SB, std::vector<bool>(GB, false));
+  for (auto &b : bins)
+  {
+    sel[b.first][b.second] = true;
+  }
+
+  float smin, smax;
+  std::tie(smin, smax) = transfer_function.compute_min_max_scalar(*scalar_volume);
+
+  float gmin =  FLT_MAX, gmax = -FLT_MAX;
+  for (auto v : gradient_volume.data)
+  {
+    float f = float(v);
+    gmin = std::min(gmin, f);
+    gmax = std::max(gmax, f);
+  }
+
+  for (size_t i = 0; i < scalar_volume->data.size(); ++i)
+  {
+    float sv = (scalar_volume->data[i] - smin) / (smax - smin + 1e-6f);
+    float gv = (gradient_volume.data[i]  - gmin) / (gmax - gmin + 1e-6f);
+    int bx = std::clamp(int(sv * (SB - 1)), 0, SB - 1);
+    int by = std::clamp(int(gv * (GB - 1)), 0, GB - 1);
+    if (sel[bx][by])
+    {
+      // color voxels whose (scalar,gradient) falls in your brush
+      tf_data[bx] = chosenColor;
+    }
+  }
+
+  // 5) Upload back to GPU
+  tf_buf.update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());
+  vmc.logical_device.get().waitIdle();
 }
 }//namespace ve

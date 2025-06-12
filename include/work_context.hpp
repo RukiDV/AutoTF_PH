@@ -40,6 +40,7 @@ public:
   void highlight_diff(const PersistencePair &base, const PersistencePair &mask);
   void highlight_intersection(const PersistencePair &a, const PersistencePair &b);
   void highlight_union(const PersistencePair &a, const PersistencePair &b);
+  void apply_2d_tf_selection(const std::vector<std::pair<int,int>>& bins, const ImVec4& color);
 private:  
   const VulkanMainContext& vmc;
   VulkanCommandContext& vcc;

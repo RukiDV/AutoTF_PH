@@ -46,6 +46,8 @@ public:
   bool union_enabled_Bonly = true;
   ImVec4 union_color_common = ImVec4(1.0f, 0.0f, 1.0f, 1.0f);
   bool union_enabled_common = true;
+  const Volume* gradient_volume = nullptr;
+  static constexpr int TF2D_BINS = 64;
 
   void construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames);
   void destruct();
@@ -70,6 +72,10 @@ public:
   void mark_merge_tree_dirty();
   void set_on_custom_color_chosen(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb);
   void set_on_clear_custom_colors(const std::function<void()>& cb);
+  void set_gradient_volume(const Volume* vol);
+  void set_on_tf2d_selected(const std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)>& cb);
+  void mark_tf2d_hist_dirty();
+  
   const Volume* get_volume() const { return volume; }
   ImVec4 get_custom_start_color() const { return custom_start_color; }
   ImVec4 get_custom_end_color() const { return custom_end_color; }
@@ -107,6 +113,10 @@ public:
   float highlight_opacity = 1.0f;
   int selected_set_op = 0; // 0: diff, 1: intersect, 2: union
   ImVec4 selected_brush_color{1,0,0,1};
+  bool tf2d_hist_dirty = true;
+  ImVec2 tf2d_brush_start, tf2d_brush_end;
+  bool tf2d_brush_active = false;
+  ImVec4 tf2d_color = ImVec4(1,0,0,1);
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<double> xs, ys;
   std::vector<float > pers;
@@ -122,6 +132,9 @@ public:
   std::vector<ImU32> brush_cluster_outlines;
   std::vector<int> region_selected_idxs;
   std::vector<ImVec4> selected_custom_colors_per_point;
+  std::vector<double> tf2d_hist;
+  std::vector<double> tf2d_hist_double;
+  std::vector<std::pair<int,int>> painted_bins;
   std::function<void(int)> on_merge_mode_changed;
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
@@ -134,5 +147,6 @@ public:
   std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
   std::function<void()> on_clear_custom_colors;
   std::function<void(const std::vector<PersistencePair>&, const ImVec4&)> on_color_chosen{};
+  std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)> on_tf2d_selected;
 };
 } // namespace ve
