@@ -152,11 +152,8 @@ void WorkContext::draw_frame(AppState &app_state)
   syncs[0].reset_fence(Synchronization::F_RENDER_FINISHED);
   if (app_state.total_frames > frames_in_flight)
   {
-    if (app_state.current_frame == 0)
-    {
-      // update device timers
-      for (int i = 0; i < DeviceTimer::TIMER_COUNT; i++) app_state.device_timings[i] = device_timers[app_state.current_frame].get_result_by_idx(i);
-    }
+    // update device timers
+    for (int i = 0; i < DeviceTimer::TIMER_COUNT; i++) app_state.device_timings[i] = device_timers[0].get_result_by_idx(i);
   }
 
   vk::ResultValue<uint32_t> image_idx = vmc.logical_device.get().acquireNextImageKHR(swapchain.get(), uint64_t(-1), syncs[0].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
@@ -169,7 +166,6 @@ void WorkContext::draw_frame(AppState &app_state)
     app_state.save_screenshot = false;
   }
   render(image_idx.value, app_state, read_only_image);
-  app_state.current_frame = (app_state.current_frame + 1) % frames_in_flight;
   app_state.total_frames++;
 }
 
@@ -183,59 +179,55 @@ vk::Extent2D WorkContext::recreate_swapchain(bool vsync)
 void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image)
 {
   // dispatch next compute iteration as soon as the previous one is done
-  if (app_state.current_frame == 0)
-  {
-    syncs[0].wait_for_fence(Synchronization::F_COMPUTE_FINISHED);
-    // reset fence for the next compute iteration
-    syncs[0].reset_fence(Synchronization::F_COMPUTE_FINISHED);
+  syncs[0].wait_for_fence(Synchronization::F_COMPUTE_FINISHED);
+  // reset fence for the next compute iteration
+  syncs[0].reset_fence(Synchronization::F_COMPUTE_FINISHED);
 
-    app_state.cam.update_data();
-    storage.get_buffer_by_name("ray_marcher_uniform_buffer").update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
+  app_state.cam.update_data();
+  storage.get_buffer_by_name("ray_marcher_uniform_buffer").update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
 
-    vk::CommandBuffer& cb = vcc.get_one_time_transfer_buffer();
+  vk::CommandBuffer &cb = vcc.get_one_time_transfer_buffer();
 
-    Image& render_texture = storage.get_image_by_name("render_texture");
-    Image& ray_marcher_output_texture = storage.get_image_by_name("ray_marcher_output_texture");
-
-    perform_image_layout_transition(cb, render_texture.get_image(), vk::ImageLayout::eShaderReadOnlyOptimal, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eMemoryRead, vk::AccessFlagBits::eTransferWrite, 0, 1, 1);
-    perform_image_layout_transition(cb, ray_marcher_output_texture.get_image(), vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eMemoryWrite, vk::AccessFlagBits::eTransferRead, 0, 1, 1);
-
-    copy_image(cb, ray_marcher_output_texture.get_image(), render_texture.get_image(), app_state.get_render_extent().width, app_state.get_render_extent().height, 1);
-
-    perform_image_layout_transition(cb, render_texture.get_image(), vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands, vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
-    perform_image_layout_transition(cb, ray_marcher_output_texture.get_image(), vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands, vk::AccessFlagBits::eTransferRead, vk::AccessFlagBits::eMemoryWrite, 0, 1, 1);
-    cb.end();
-
-    syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
-    vk::SubmitInfo si(0, nullptr, nullptr, 1, &cb);
-    vmc.get_transfer_queue().submit(si, syncs[0].get_fence(Synchronization::F_COPY_FINISHED));
-    syncs[0].wait_for_fence(Synchronization::F_COPY_FINISHED);
-    syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
-
-    vk::CommandBuffer& compute_cb = vcc.begin(vcc.compute_cbs[0]);
-    device_timers[app_state.current_frame].reset(compute_cb, {DeviceTimer::VOLUME});
-    device_timers[app_state.current_frame].start(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
-    ray_marcher.compute(compute_cb, app_state, read_only_buffer_idx);
-    device_timers[app_state.current_frame].stop(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
-    compute_cb.end();
-    read_only_buffer_idx = (read_only_buffer_idx + 1) % frames_in_flight;
-
-    vk::SubmitInfo compute_si(0, nullptr, nullptr, 1, &vcc.compute_cbs[0]);
-    vmc.get_compute_queue().submit(compute_si, syncs[0].get_fence(Synchronization::F_COMPUTE_FINISHED));
-  }
-
-  vk::CommandBuffer& graphics_cb = vcc.begin(vcc.graphics_cbs[app_state.current_frame]);
-  device_timers[app_state.current_frame].reset(graphics_cb, {DeviceTimer::UI});
   Image& render_texture = storage.get_image_by_name("render_texture");
+  Image& ray_marcher_output_texture = storage.get_image_by_name("ray_marcher_output_texture");
+
+  perform_image_layout_transition(cb, render_texture.get_image(), vk::ImageLayout::eShaderReadOnlyOptimal, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eMemoryRead, vk::AccessFlagBits::eTransferWrite, 0, 1, 1);
+  perform_image_layout_transition(cb, ray_marcher_output_texture.get_image(), vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eTransfer, vk::AccessFlagBits::eMemoryWrite, vk::AccessFlagBits::eTransferRead, 0, 1, 1);
+
+  copy_image(cb, ray_marcher_output_texture.get_image(), render_texture.get_image(), app_state.get_render_extent().width, app_state.get_render_extent().height, 1);
+
+  perform_image_layout_transition(cb, render_texture.get_image(), vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands, vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
+  perform_image_layout_transition(cb, ray_marcher_output_texture.get_image(), vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllCommands, vk::AccessFlagBits::eTransferRead, vk::AccessFlagBits::eMemoryWrite, 0, 1, 1);
+  cb.end();
+
+  syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
+  vk::SubmitInfo si(0, nullptr, nullptr, 1, &cb);
+  vmc.get_transfer_queue().submit(si, syncs[0].get_fence(Synchronization::F_COPY_FINISHED));
+  syncs[0].wait_for_fence(Synchronization::F_COPY_FINISHED);
+  syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
+
+  vk::CommandBuffer &compute_cb = vcc.begin(vcc.compute_cbs[0]);
+  device_timers[0].reset(compute_cb, {DeviceTimer::VOLUME});
+  device_timers[0].start(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
+  ray_marcher.compute(compute_cb, app_state, read_only_buffer_idx);
+  device_timers[0].stop(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
+  compute_cb.end();
+  read_only_buffer_idx = (read_only_buffer_idx + 1) % frames_in_flight;
+
+  vk::SubmitInfo compute_si(0, nullptr, nullptr, 1, &vcc.compute_cbs[0]);
+  vmc.get_compute_queue().submit(compute_si, syncs[0].get_fence(Synchronization::F_COMPUTE_FINISHED));
+
+  vk::CommandBuffer& graphics_cb = vcc.begin(vcc.graphics_cbs[0]);
+  device_timers[0].reset(graphics_cb, {DeviceTimer::UI});
   if (render_texture.get_layout() != vk::ImageLayout::eShaderReadOnlyOptimal)
   {
     perform_image_layout_transition(graphics_cb, render_texture.get_image(), render_texture.get_layout(), vk::ImageLayout::eShaderReadOnlyOptimal, vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eMemoryWrite, vk::AccessFlagBits::eMemoryRead, 0, 1, 1);
     render_texture.set_layout(vk::ImageLayout::eShaderReadOnlyOptimal);
   }
   renderer.render(graphics_cb, app_state, read_only_buffer_idx, swapchain.get_framebuffer(image_idx), swapchain.get_render_pass().get());
-  device_timers[app_state.current_frame].start(graphics_cb, DeviceTimer::UI, vk::PipelineStageFlagBits::eTopOfPipe);
+  device_timers[0].start(graphics_cb, DeviceTimer::UI, vk::PipelineStageFlagBits::eTopOfPipe);
   if (app_state.show_ui) ui.draw(graphics_cb, app_state);
-  device_timers[app_state.current_frame].stop(graphics_cb, DeviceTimer::UI, vk::PipelineStageFlagBits::eBottomOfPipe);
+  device_timers[0].stop(graphics_cb, DeviceTimer::UI, vk::PipelineStageFlagBits::eBottomOfPipe);
   graphics_cb.endRenderPass();
   graphics_cb.end();
 
@@ -245,7 +237,7 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
   render_wait_stages.push_back(vk::PipelineStageFlagBits::eColorAttachmentOutput);
   std::vector<vk::Semaphore> render_signal_semaphores;
   render_signal_semaphores.push_back(syncs[0].get_semaphore(Synchronization::S_RENDER_FINISHED));
-  vk::SubmitInfo render_si(render_wait_semaphores.size(), render_wait_semaphores.data(), render_wait_stages.data(), 1, &vcc.graphics_cbs[app_state.current_frame], render_signal_semaphores.size(), render_signal_semaphores.data());
+  vk::SubmitInfo render_si(render_wait_semaphores.size(), render_wait_semaphores.data(), render_wait_stages.data(), 1, &vcc.graphics_cbs[0], render_signal_semaphores.size(), render_signal_semaphores.data());
   vmc.get_graphics_queue().submit(render_si, syncs[0].get_fence(Synchronization::F_RENDER_FINISHED));
 
   vk::PresentInfoKHR present_info(1, &syncs[0].get_semaphore(Synchronization::S_RENDER_FINISHED), 1, &swapchain.get(), &image_idx);

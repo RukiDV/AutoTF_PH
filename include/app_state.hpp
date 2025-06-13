@@ -9,7 +9,6 @@
 struct AppState {
 public:
   Camera cam;
-  uint32_t current_frame = 0;
   uint32_t total_frames = 0;
   std::array<float, ve::DeviceTimer::TIMER_COUNT> device_timings;
   bool vsync = true;
