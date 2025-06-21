@@ -380,9 +380,7 @@ int gpu_render(const Volume &volume)
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
 
-    //gpu_context.wc.set_persistence_pairs(normalizedPairs, volume);
     gpu_context.wc.set_persistence_pairs(displayPairs, volume);
-    //gpu_context.wc.set_raw_persistence_pairs(displayPairs);
     gpu_context.wc.set_gradient_persistence_pairs(gradDisplayPairs);
 
     bool quit = false;

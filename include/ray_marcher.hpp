@@ -15,7 +15,7 @@ class RayMarcher
 {
 public:
   RayMarcher(const VulkanMainContext& vmc, Storage& storage);
-  void setup_storage(AppState& app_state, const Volume& volume);
+  void setup_storage(AppState& app_state, const Volume& volume, const Volume& gradient_volume);
   void construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution);
   void destruct();
   void reload_shaders();
@@ -29,7 +29,7 @@ private:
     VOLUME_BUFFER = 2,
     TF_BUFFER = 3,
     UNIFORM_BUFFER = 4,
-    PERSISTENCE_BUFFER = 5,
+    GRADIENT_VOLUME_BUFFER = 5,
     BUFFER_COUNT
   };
 

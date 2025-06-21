@@ -41,6 +41,7 @@ layout(binding = 2) uniform UniformBuffer { CameraData camera_data; };
 layout(binding = 3, rgba8) uniform restrict writeonly image2D output_image;
 layout(binding = 4) readonly buffer InputPixelBuffer { PixelData input_pixel_data[]; };
 layout(binding = 5) writeonly buffer OutputPixelBuffer { PixelData output_pixel_data[]; };
+layout(binding = 6) readonly buffer GradientVolume { uint8_t grad_data[]; };
 
 float compMax(vec3 v)
 {

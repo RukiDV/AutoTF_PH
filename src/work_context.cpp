@@ -17,7 +17,8 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   vcc.add_compute_buffers(2);
   vcc.add_transfer_buffers(1);
   renderer.setup_storage(app_state);
-  ray_marcher.setup_storage(app_state, volume);
+  gradient_volume = compute_gradient_volume(volume);
+  ray_marcher.setup_storage(app_state, volume, gradient_volume);
   app_state.max_gradient = *std::max_element(gradient_volume.data.cbegin(), gradient_volume.data.cend());
   swapchain.construct(app_state.vsync);
   app_state.set_window_extent(swapchain.get_extent());
@@ -40,7 +41,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   set_persistence_pairs(persistence_pairs, volume);
 
   // compute and set gradient persistence pairs
-  gradient_volume = compute_gradient_volume(volume);
+  
   std::vector<int> grad_filt_vals;
   auto raw_grad_pairs = calculate_persistence_pairs(gradient_volume, grad_filt_vals, app_state.filtration_mode);
   gradient_persistence_pairs.clear();

@@ -10,7 +10,7 @@ RayMarcher::RayMarcher(const VulkanMainContext& vmc, Storage& storage) : vmc(vmc
   clear_storage_indices();
 }
 
-void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
+void RayMarcher::setup_storage(AppState& app_state, const Volume& volume, const Volume& gradient_volume)
 {
   // set up ray marcher buffer
   std::vector<glm::vec3> initial_ray_macher_data(app_state.get_render_extent().width * app_state.get_render_extent().height);
@@ -31,6 +31,8 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   }
   buffers[TF_BUFFER] = storage.add_buffer("transfer_function", initial_tf_data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 
+  buffers[GRADIENT_VOLUME_BUFFER] = storage.add_buffer("gradient_volume", gradient_volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
+
   buffers[UNIFORM_BUFFER] = storage.add_buffer("ray_marcher_uniform_buffer", sizeof(Camera::Data), vk::BufferUsageFlagBits::eUniformBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
   app_state.cam.update();
   app_state.cam.update_data();
@@ -39,9 +41,6 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
   std::vector<unsigned char> initial_image(app_state.get_render_extent().width * app_state.get_render_extent().height * 4, 0);
 
   images[RAY_MARCHER_IMAGE] = storage.add_image("ray_marcher_output_texture", initial_image.data(), app_state.get_render_extent().width, app_state.get_render_extent().height, false, 0, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute | QueueFamilyFlags::Graphics, vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eStorage);
-  
-  // TODO set buffer size correct
-  buffers[PERSISTENCE_BUFFER] = storage.add_buffer("persistence_buffer", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 }
 
 void RayMarcher::construct(AppState& app_state, VulkanCommandContext& vcc, glm::uvec3 volume_resolution)
@@ -118,7 +117,7 @@ void RayMarcher::create_descriptor_set()
     dsh.add_descriptor(i, 3, storage.get_image_by_name("ray_marcher_output_texture"));
     dsh.add_descriptor(i, 4, storage.get_buffer_by_name("ray_marcher_output_" + std::to_string(i)));
     dsh.add_descriptor(i, 5, storage.get_buffer_by_name("ray_marcher_output_" + std::to_string(1 - i)));
-    dsh.add_descriptor(i, 6, storage.get_buffer_by_name("persistence_buffer"));
+    dsh.add_descriptor(i, 6, storage.get_buffer_by_name("gradient_volume"));
   }
   dsh.construct();
 }
