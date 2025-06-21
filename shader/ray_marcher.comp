@@ -35,7 +35,7 @@ layout(constant_id = 1) const uint volume_height = 1;
 layout(constant_id = 2) const uint volume_depth = 1;
 layout(constant_id = 3) const uint TF2D_BINS = 256;
 
-layout(binding = 0) readonly buffer Volume { uint8_t data[]; };
+layout(binding = 0) readonly buffer Volume { uint8_t volume_data[]; };
 layout(binding = 1) readonly buffer TransferFunctionBuffer { vec4 transfer_function[]; };
 layout(binding = 2) uniform UniformBuffer { CameraData camera_data; };
 layout(binding = 3, rgba8) uniform restrict writeonly image2D output_image;
@@ -101,14 +101,14 @@ float trilinear_interpolate(uvec3 volume_pos, vec3 weights)
     uint index011 = index001 + volume_width;
     uint index111 = index011 + 1;
 
-    float c000 = float(uint(data[index000])) / 255.0;
-    float c100 = float(uint(data[index100])) / 255.0;
-    float c010 = float(uint(data[index010])) / 255.0;
-    float c110 = float(uint(data[index110])) / 255.0;
-    float c001 = float(uint(data[index001])) / 255.0;
-    float c101 = float(uint(data[index101])) / 255.0;
-    float c011 = float(uint(data[index011])) / 255.0;
-    float c111 = float(uint(data[index111])) / 255.0;
+    float c000 = float(uint(volume_data[index000])) / 255.0;
+    float c100 = float(uint(volume_data[index100])) / 255.0;
+    float c010 = float(uint(volume_data[index010])) / 255.0;
+    float c110 = float(uint(volume_data[index110])) / 255.0;
+    float c001 = float(uint(volume_data[index001])) / 255.0;
+    float c101 = float(uint(volume_data[index101])) / 255.0;
+    float c011 = float(uint(volume_data[index011])) / 255.0;
+    float c111 = float(uint(volume_data[index111])) / 255.0;
 
     float c00 = mix(c000, c100, weights.x);
     float c10 = mix(c010, c110, weights.x);
