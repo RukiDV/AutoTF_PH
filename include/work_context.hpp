@@ -31,16 +31,12 @@ public:
   vk::Extent2D recreate_swapchain(bool vsync);
   void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
   void load_persistence_diagram_texture(const std::string &filePath);
-  void highlight_persistence_pair(const PersistencePair& pair);
-  void isolate_persistence_pairs(const std::vector<PersistencePair>& pairs);
-  void volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index);
   void highlight_diff(const PersistencePair &base, const PersistencePair &mask);
   void highlight_intersection(const PersistencePair &a, const PersistencePair &b);
   void highlight_union(const PersistencePair &a, const PersistencePair &b);
-  void apply_2d_tf_selection(const std::vector<std::pair<int,int>>& bins, const ImVec4& color);
 private:  
   const VulkanMainContext& vmc;
   VulkanCommandContext& vcc;
@@ -63,8 +59,6 @@ private:
   std::vector<PersistencePair> gradient_persistence_pairs;
   std::vector<std::pair<PersistencePair, glm::vec4>> custom_colors;
   void render(uint32_t image_idx, AppState& app_state, uint32_t read_only_image);
-  void histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data); 
-  void refine_with_ph(const Volume &volume, int ph_threshold, std::vector<glm::vec4> &tf_data);
   void apply_custom_color_to_volume(const std::vector<PersistencePair>& pairs, const ImVec4& color);
   void reset_custom_colors();
   void export_persistence_pairs_to_csv(const std::vector<PersistencePair>& scalar_pairs, const std::vector<PersistencePair>& gradient_pairs, const std::string& scalar_filename  = "scalar_pairs.csv", const std::string& gradient_filename = "gradient_pairs.csv") const;

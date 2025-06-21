@@ -58,10 +58,6 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
   ui.set_gradient_volume(&gradient_volume);
 
-  ui.set_on_tf2d_selected([this](const std::vector<std::pair<int,int>>& bins, const ImVec4& color){
-        this->apply_2d_tf_selection(bins, color);
-    });
-
   // switching between scalar/gradient persistenceColor Ramp
   ui.set_on_merge_mode_changed([this](int mode)
   {
@@ -264,73 +260,6 @@ void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pair
   vmc.logical_device.get().waitIdle();
 }
 
-// build a histogram-based color/opacity array
-void WorkContext::histogram_based_tf(const Volume &volume, std::vector<glm::vec4> &tf_data)
-  {
-      const int bins = 256;
-      std::vector<int> histogram(bins, 0);
-
-      for (auto val : volume.data)
-      {
-          histogram[val]++;
-      }
-
-      int maxCount = *std::max_element(histogram.begin(), histogram.end());
-      if (maxCount == 0) maxCount = 1;
-
-      tf_data.resize(bins);
-      for (int i = 0; i < bins; ++i)
-      {
-          float normalized = float(histogram[i]) / float(maxCount);
-          float intensity = float(i) / 255.0f;
-          tf_data[i] = glm::vec4(intensity, intensity, intensity, normalized);
-      }
-  }
-
-// refine the TF with persistent homology data
-void WorkContext::refine_with_ph(const Volume &volume, int ph_threshold, std::vector<glm::vec4> &tf_data)
-{
-  // compute raw persistence pairs
-  std::vector<int> filt_vals;
-  auto raw_pairs = calculate_persistence_pairs(volume, filt_vals);
-
-  // apply the threshold cut to remove low-persistence features
-  auto filtered = threshold_cut(raw_pairs, ph_threshold);
-
-  // compute the maximum persistence value from the filtered pairs
-  float maxPersistence = 0.0f;
-  for (const auto &pair : filtered)
-  {
-      float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
-      if (persistence > maxPersistence)
-          maxPersistence = persistence;
-  }
-  if (maxPersistence < 1e-6f)
-      maxPersistence = 1.0f;
-
-  // for each filtered pair, compute a weight and blend the highlight into the base TF
-  for (auto &pair : filtered) 
-  {
-      float persistence = (pair.death > pair.birth) ? float(pair.death - pair.birth) : 0.0f;
-      float weight = persistence / maxPersistence;
-      weight = glm::clamp(weight, 0.2f, 1.0f);
-
-      // convert birth and death to indices in the transfer function range [0,255]
-      uint32_t b = std::clamp(pair.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-      uint32_t d = std::clamp(pair.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-
-      // blend the base TF color with red for the birth index
-      glm::vec4 baseBirth = tf_data[b];
-      glm::vec4 redHighlight = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-      tf_data[b] = glm::mix(baseBirth, redHighlight, weight);
-
-      // blend the base TF color with green for the death index
-      glm::vec4 baseDeath = tf_data[d];
-      glm::vec4 greenHighlight = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-      tf_data[d] = glm::mix(baseDeath, greenHighlight, weight);
-  }
-}
-
 void WorkContext::load_persistence_diagram_texture(const std::string &filePath)
 {
   try {
@@ -339,98 +268,6 @@ void WorkContext::load_persistence_diagram_texture(const std::string &filePath)
   } catch (const std::exception& e) {
       std::cerr << "Failed to load persistence diagram texture: " << e.what() << std::endl;
   }
-}
-
-void WorkContext::highlight_persistence_pair(const PersistencePair& pair)
-{
-    std::cout << "DEBUG: highlight_persistence_pair invoked with (birth=" 
-              << pair.birth << ", death=" << pair.death << ")" << std::endl;
-    std::vector<glm::vec4> tf_data;
-    transfer_function.update(persistence_pairs, *ui.get_volume(), tf_data);
-    auto [vol_min, vol_max] = transfer_function.compute_min_max_scalar(*ui.get_volume());
-    
-    float normalizedBirth = (float(pair.birth) - vol_min) / float(vol_max - vol_min);
-    float normalizedDeath = (float(pair.death) - vol_min) / float(vol_max - vol_min);
-    uint32_t indexBirth = static_cast<uint32_t>(normalizedBirth * 255.0f);
-    uint32_t indexDeath = static_cast<uint32_t>(normalizedDeath * 255.0f);
-    indexBirth = std::clamp(indexBirth, 0u, 255u);
-    indexDeath = std::clamp(indexDeath, 0u, 255u);
-
-    if (indexBirth == indexDeath) 
-    {
-        const uint32_t delta = 5;
-        indexBirth = (indexBirth >= delta) ? indexBirth - delta : 0;
-        indexDeath = std::min(indexDeath + delta, 255u);
-    }
-    
-    for (uint32_t i = indexBirth; i <= indexDeath && i < tf_data.size(); ++i)
-    {
-        tf_data[i] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);  // highlight in yellow
-    }
-    
-    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
-    vmc.logical_device.get().waitIdle();
-    
-    std::cout << "DEBUG: Highlighted persistence pair in range [" << indexBirth << ", " << indexDeath << "]." << std::endl;
-}
-
-void WorkContext::isolate_persistence_pairs(const std::vector<PersistencePair>& pairs)
-{
-   std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
-
-    // use the stored global max, not recompute from pairs
-    uint32_t maxPers = std::max(global_max_persistence, 1u);
-
-    for (auto &p : pairs)
-    {
-        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
-        float norm = float(pers) / float(maxPers);
-        float hue  = (1.0f - norm) * 240.0f;     // 0=red .. 240=blue
-        glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
-
-        uint32_t bi = std::clamp(p.birth, 0u, 255u);
-        uint32_t di = std::clamp(p.death, 0u, 255u);
-        if (bi > di) std::swap(bi, di);
-        for (uint32_t i = bi; i <= di; ++i)
-            tf_data[i] = glm::vec4(rgb, 1.0f);
-    }
-
-    storage.get_buffer_by_name("transfer_function").update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());
-    vmc.logical_device.get().waitIdle();
-}
-
-void WorkContext::volume_highlight_persistence_pairs(const std::vector<PersistencePair>& pairs)
-{
-    std::vector<glm::vec4> tf_data(256, glm::vec4(0.0f));
-    uint32_t maxPers = std::max(global_max_persistence, 1u);
-    for (auto &p : pairs)
-    {
-        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
-        float norm = float(pers) / float(maxPers);
-        float hue  = (1.0f - norm) * 240.0f;
-        glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
-
-        uint32_t b = std::clamp(p.birth, uint32_t(0), uint32_t(255));
-        uint32_t d = std::clamp(p.death, uint32_t(0), uint32_t(255));
-        if (b > d) std::swap(b, d);
-        for (uint32_t i = b; i <= d; ++i)
-            tf_data[i] = glm::vec4(rgb, 1.0f);
-    }
-
-    for (auto &assign : custom_colors)
-    {
-        const auto &p   = assign.first;
-        const auto &col = assign.second;
-
-        uint32_t b = std::clamp(p.birth,  uint32_t(0), uint32_t(255));
-        uint32_t d = std::clamp(p.death,  uint32_t(0), uint32_t(255));
-        if (b > d) std::swap(b, d);
-        for (uint32_t i = b; i <= d; ++i)
-            tf_data[i] = col;
-    }
-    auto &tf_buf = storage.get_buffer_by_name("transfer_function");
-    tf_buf.update_data_bytes(tf_data.data(), sizeof(glm::vec4) * tf_data.size());
-    vmc.logical_device.get().waitIdle();
 }
 
 void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index)
@@ -780,50 +617,4 @@ void WorkContext::reset_custom_colors()
   volume_highlight_persistence_pairs_gradient(all_hits, ramp);
 }
 
-void WorkContext::apply_2d_tf_selection(const std::vector<std::pair<int,int>>& bins, const ImVec4& color)
-{
-  // pull in the bin count from the UI:
-  constexpr int SB = ve::UI::TF2D_BINS;
-  constexpr int GB = ve::UI::TF2D_BINS;
-
-  auto &tf_buf = storage.get_buffer_by_name("transfer_function");
-  std::vector<glm::vec4> tf_data = tf_buf.obtain_all_data<glm::vec4>();
-
-  glm::vec4 chosenColor{color.x, color.y, color.z, color.w};
-
-  // build a 2D lookup table of selected bins
-  std::vector<std::vector<bool>> sel(SB, std::vector<bool>(GB, false));
-  for (auto &b : bins)
-  {
-    sel[b.first][b.second] = true;
-  }
-
-  float smin, smax;
-  std::tie(smin, smax) = transfer_function.compute_min_max_scalar(*scalar_volume);
-
-  float gmin =  FLT_MAX, gmax = -FLT_MAX;
-  for (auto v : gradient_volume.data)
-  {
-    float f = float(v);
-    gmin = std::min(gmin, f);
-    gmax = std::max(gmax, f);
-  }
-
-  for (size_t i = 0; i < scalar_volume->data.size(); ++i)
-  {
-    float sv = (scalar_volume->data[i] - smin) / (smax - smin + 1e-6f);
-    float gv = (gradient_volume.data[i]  - gmin) / (gmax - gmin + 1e-6f);
-    int bx = std::clamp(int(sv * (SB - 1)), 0, SB - 1);
-    int by = std::clamp(int(gv * (GB - 1)), 0, GB - 1);
-    if (sel[bx][by])
-    {
-      // color voxels whose (scalar,gradient) falls in your brush
-      tf_data[bx] = chosenColor;
-    }
-  }
-
-  // 5) Upload back to GPU
-  tf_buf.update_data_bytes(tf_data.data(), sizeof(glm::vec4)*tf_data.size());
-  vmc.logical_device.get().waitIdle();
-}
 }//namespace ve
