@@ -42,7 +42,7 @@ public:
   int display_mode = 1;
   float max_gradient = 0.0f;
 
-  static constexpr int TF2D_BINS = 256;
+  static constexpr uint32_t TF2D_BINS = 256;
 
   vk::Extent2D get_render_extent() const { return render_extent; }
   vk::Extent2D get_window_extent() const { return window_extent; }

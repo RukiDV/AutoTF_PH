@@ -352,7 +352,7 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
 
 void WorkContext::highlight_diff(const PersistencePair &base, const PersistencePair &mask)
 {
-  tf_data.assign(256, glm::vec4(0.0f));
+  tf_data.assign(AppState::TF2D_BINS, glm::vec4(0.0f));
 
   uint32_t b0 = std::clamp(base.birth,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
   uint32_t d0 = std::clamp(base.death,  static_cast<uint32_t>(0), static_cast<uint32_t>(255));
@@ -383,17 +383,9 @@ void WorkContext::highlight_diff(const PersistencePair &base, const PersistenceP
 
 }
 
-void WorkContext::highlight_intersection(const PersistencePair &a, const PersistencePair &b)
+void WorkContext::highlight_intersection(const PersistencePair& a, const PersistencePair& b)
 {
-  tf_data.assign(256, glm::vec4(0.0f));
-
-  uint32_t a0 = std::clamp(a.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-  uint32_t a1 = std::clamp(a.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-  if (a0 > a1) std::swap(a0, a1);
-
-  uint32_t b0 = std::clamp(b.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-  uint32_t b1 = std::clamp(b.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-  if (b0 > b1) std::swap(b0, b1);
+  tf_data.assign(AppState::TF2D_BINS, glm::vec4(0.0f));
 
   // intersection [max(a0,b0) .. min(a1,b1)]
   uint32_t i_start = std::max(a0, b0);
@@ -446,12 +438,9 @@ void WorkContext::highlight_intersection(const PersistencePair &a, const Persist
   }
 }
 
-void WorkContext::highlight_union(const PersistencePair &a, const PersistencePair &b)
+void WorkContext::highlight_union(const PersistencePair& a, const PersistencePair& b)
 {
-  tf_data.assign(256, glm::vec4(0.0f));
-
-  uint32_t a0 = std::clamp(a.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
-  uint32_t a1 = std::clamp(a.death, static_cast<uint32_t>(0), static_cast<uint32_t>(255));
+  tf_data.assign(AppState::TF2D_BINS, glm::vec4(0.0f));
   if (a0 > a1) std::swap(a0, a1);
 
   uint32_t b0 = std::clamp(b.birth, static_cast<uint32_t>(0), static_cast<uint32_t>(255));

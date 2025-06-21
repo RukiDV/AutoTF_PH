@@ -47,7 +47,6 @@ public:
   ImVec4 union_color_common = ImVec4(1.0f, 0.0f, 1.0f, 1.0f);
   bool union_enabled_common = true;
   const Volume* gradient_volume = nullptr;
-  static constexpr int TF2D_BINS = 64;
 
   void construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames);
   void destruct();
