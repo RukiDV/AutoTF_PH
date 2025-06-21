@@ -23,8 +23,8 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume)
 
   //std::vector<glm::vec4> initial_tf_data(128, glm::vec4(1.0, 1.0, 1.0, 0.0));
   //initial_tf_data.resize(256, glm::vec4(1.0, 1.0, 1.0, 1.0));
-  std::vector<glm::vec4> initial_tf_data(256);
-  for (int i = 0; i < 256; ++i) 
+  std::vector<glm::vec4> initial_tf_data(AppState::TF2D_BINS, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+  for (int i = 0; i < AppState::TF2D_BINS; ++i) 
   {
     float value = i / 255.0f;
     initial_tf_data[i] = glm::vec4(value, value, value, 1.0);
@@ -79,19 +79,20 @@ void RayMarcher::compute(vk::CommandBuffer& cb, AppState& app_state, uint32_t re
 {
   cb.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
   cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline.get_layout(), 0, dsh.get_sets()[read_only_buffer_idx], {});
-  uint32_t mode = app_state.display_mode;
-  pc = {mode};
+  pc.display_mode  = app_state.display_mode;
+  pc.max_gradient  = app_state.max_gradient;
   cb.pushConstants(pipeline.get_layout(), vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstants), &pc);
   cb.dispatch((app_state.get_render_extent().width + 31) / 32, (app_state.get_render_extent().height + 31) / 32, 1);
 }
 
 void RayMarcher::create_pipeline(const AppState& app_state, glm::uvec3 volume_resolution)
 {
-  std::array<vk::SpecializationMapEntry, 3> spec_entries;
+  std::array<vk::SpecializationMapEntry, 4> spec_entries;
   spec_entries[0] = vk::SpecializationMapEntry(0, 0, sizeof(uint32_t));
   spec_entries[1] = vk::SpecializationMapEntry(1, sizeof(uint32_t), sizeof(uint32_t));
   spec_entries[2] = vk::SpecializationMapEntry(2, sizeof(uint32_t) * 2, sizeof(uint32_t));
-  std::array<uint32_t, 3> spec_entries_data{volume_resolution.x, volume_resolution.y, volume_resolution.z};
+  spec_entries[3] = vk::SpecializationMapEntry(3, sizeof(uint32_t) * 3, sizeof(uint32_t));
+  std::array<uint32_t, 4> spec_entries_data{volume_resolution.x, volume_resolution.y, volume_resolution.z, static_cast<uint32_t>(AppState::TF2D_BINS)};
   vk::SpecializationInfo spec_info(spec_entries.size(), spec_entries.data(), sizeof(uint32_t) * spec_entries_data.size(), spec_entries_data.data());
   ShaderInfo ray_marcher_shader_info = ShaderInfo{"ray_marcher.comp", vk::ShaderStageFlagBits::eCompute, spec_info};
   pipeline.construct(dsh.get_layout(), ray_marcher_shader_info, sizeof(PushConstants));

@@ -18,6 +18,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   vcc.add_transfer_buffers(1);
   renderer.setup_storage(app_state);
   ray_marcher.setup_storage(app_state, volume);
+  app_state.max_gradient = *std::max_element(gradient_volume.data.cbegin(), gradient_volume.data.cend());
   swapchain.construct(app_state.vsync);
   app_state.set_window_extent(swapchain.get_extent());
   for (uint32_t i = 0; i < frames_in_flight; ++i)

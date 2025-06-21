@@ -25,6 +25,7 @@ struct Ray
 struct PushConstants
 {
     uint display_mode;   // 0 = iso, 1 = volume
+    float max_gradient; // maximum gradient value for 2D TF
 };
 
 layout(push_constant) uniform DisplayMode { PushConstants pc; };
@@ -32,6 +33,7 @@ layout(push_constant) uniform DisplayMode { PushConstants pc; };
 layout(constant_id = 0) const uint volume_width = 1;
 layout(constant_id = 1) const uint volume_height = 1;
 layout(constant_id = 2) const uint volume_depth = 1;
+layout(constant_id = 3) const uint TF2D_BINS = 256;
 
 layout(binding = 0) readonly buffer Volume { uint8_t data[]; };
 layout(binding = 1) readonly buffer TransferFunctionBuffer { vec4 transfer_function[]; };
