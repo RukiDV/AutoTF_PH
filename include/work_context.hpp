@@ -52,6 +52,7 @@ private:
   uint32_t global_max_persistence = 1;
   const Volume* scalar_volume = nullptr;
   Volume gradient_volume;
+  std::vector<glm::vec4> tf_data;
   std::vector<PersistencePair> persistence_pairs;
   std::vector<PersistencePair> raw_persistence_pairs;
   std::vector<Synchronization> syncs;
