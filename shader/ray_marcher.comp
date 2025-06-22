@@ -24,8 +24,8 @@ struct Ray
 
 struct PushConstants
 {
-    uint display_mode;   // 0 = iso, 1 = volume
-    float max_gradient; // maximum gradient value for 2D TF
+    uint display_mode; // 0 = iso, 1 = volume
+    float max_gradient;
 };
 
 layout(push_constant) uniform DisplayMode { PushConstants pc; };
@@ -65,28 +65,6 @@ bool intersect(vec3 origin, vec3 dir, out float out_t)
     float t_box_max = min(compMin(t_maxes), 1000.0f);
     out_t = t_box_min;
     return t_box_min <= t_box_max;
-}
-
-// calculate gradient
-float gradient(vec3 pos)
-{
-    float epsilon = 0.01;
-
-    // calculate density of neighbor points
-    float density_x_plus = length((pos + vec3(epsilon, 0.0, 0.0)).xy);
-    float density_x_minus = length((pos - vec3(epsilon, 0.0, 0.0)).xy);
-    float density_y_plus = length((pos + vec3(0.0, epsilon, 0.0)).xy);
-    float density_y_minus = length((pos - vec3(0.0, epsilon, 0.0)).xy);
-    float density_z_plus = length((pos + vec3(0.0, 0.0, epsilon)).xy);
-    float density_z_minus = length((pos - vec3(0.0, 0.0, epsilon)).xy);
-
-    // calculate derivation
-    float grad_x = (density_x_plus - density_x_minus) / (2.0 * epsilon);
-    float grad_y = (density_y_plus - density_y_minus) / (2.0 * epsilon);
-    float grad_z = (density_z_plus - density_z_minus) / (2.0 * epsilon);
-
-    // calculate abs of gradient
-    return sqrt(grad_x * grad_x + grad_y * grad_y + grad_z * grad_z);
 }
 
 float trilinear_interpolate(uvec3 volume_pos, vec3 weights) 
@@ -153,17 +131,27 @@ vec3 ray_march(Ray ray)
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
 
-            // lookup transfer function
-            uint idx = uint(density * float(transfer_function.length()));
-            idx = clamp(idx, 0u, transfer_function.length()-1u);
-            vec4 tfv = transfer_function[idx];
+            // compute scalar index
+            uint scalar_idx = uint(density * float(TF2D_BINS - 1u));
+            scalar_idx = clamp(scalar_idx, 0u, TF2D_BINS - 1u);
+
+            // compute gradient index
+            uint raw_grad = uint(grad_data[p0.z * volume_height * volume_width + p0.y * volume_width + p0.x]);
+            float g_norm = float(raw_grad) / pc.max_gradient;
+            uint gradient_idx = uint(g_norm * float(TF2D_BINS - 1u));
+            gradient_idx = clamp(gradient_idx, 0u, TF2D_BINS - 1u);
+
+            // 2D lookup
+            uint tf_idx = gradient_idx * TF2D_BINS + scalar_idx;
+            tf_idx = clamp(tf_idx, 0u, transfer_function.length() - 1u);
+            vec4 tfv = transfer_function[tf_idx];
 
             // early exit on first non-zero alpha
             if (tfv.a > 0.0)
             {
                 return tfv.rgb;
             }
-            t += step_size;
+            t += step_size; 
         }
         // no hit = white; but our loop returns as soon as we hit, so reaching here means “missed all” or “exited early”
         return vec3(1.0);
@@ -187,15 +175,28 @@ vec3 ray_march(Ray ray)
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
 
-            uint idx = uint(density * float(transfer_function.length()));
-            idx = clamp(idx, 0u, transfer_function.length()-1u);
-            vec4 tfv = transfer_function[idx];
+            // compute scalar index
+            uint scalar_idx = uint(density * float(TF2D_BINS - 1u));
+            scalar_idx = clamp(scalar_idx, 0u, TF2D_BINS-1u);
+
+            // compute gradient index 
+            uint raw_grad = uint(grad_data[p0.z * volume_height * volume_width + p0.y * volume_width + p0.x ]);
+            float g_norm = float(raw_grad) / pc.max_gradient;  
+            uint gradient_idx = uint(g_norm * float(TF2D_BINS - 1u));
+            gradient_idx = clamp(gradient_idx, 0u, TF2D_BINS - 1u);
+            
+            // 2D lookup
+            uint tf_idx = gradient_idx * TF2D_BINS + scalar_idx;
+            uint max_tf = transfer_function.length();
+            tf_idx = clamp(tf_idx, 0u, max_tf - 1u);
+            vec4 tfv = transfer_function[tf_idx];
 
             // accumulate front-to-back blending
             float alpha = tfv.a * highlight_step;
             vec3 pre = tfv.rgb * alpha;
             accum_color += pre * (1.0 - accum_alpha);
             accum_alpha += alpha * (1.0 - accum_alpha);
+            
             if (accum_alpha >= 0.95)
             {
                 break;

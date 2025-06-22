@@ -6,6 +6,8 @@
 #include <iostream>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include "stb/stb_image_write.h"
+#include <iomanip>
 
 namespace ve
 {
@@ -58,6 +60,16 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
   ui.set_gradient_volume(&gradient_volume);
 
+  tf_data.clear();
+  tf_data.resize(AppState::TF2D_BINS * AppState::TF2D_BINS);
+  for (int i = 0; i < AppState::TF2D_BINS; ++i) 
+  {
+    for (int j = 0; j < AppState::TF2D_BINS; ++j)
+    {
+      float value = float(j) / float(AppState::TF2D_BINS - 1);
+      tf_data[j * AppState::TF2D_BINS + i] = glm::vec4(1.0, value, value, 1.0);
+    }
+  }
   // switching between scalar/gradient persistenceColor Ramp
   ui.set_on_merge_mode_changed([this](int mode)
   {
@@ -86,12 +98,11 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
     merge_tree = build_merge_tree_with_tolerance((mode == 0 ? persistence_pairs : gradient_persistence_pairs), 5u);
     ui.mark_merge_tree_dirty();
     ui.clear_selection();
-    ui.mark_tf2d_hist_dirty();
   });
 
   ui.set_on_highlight_selected([this](const std::vector<std::pair<PersistencePair,float>>& hits, int ramp_index)
   {
-    this->volume_highlight_persistence_pairs_gradient(hits, ramp_index);
+    this->volume_highlight_persistence_pairs(hits, ramp_index);
   });
 
   ui.set_on_diff_selected([this](const PersistencePair &a, const PersistencePair &b) {
@@ -151,10 +162,6 @@ void WorkContext::draw_frame(AppState &app_state)
     for (int i = 0; i < DeviceTimer::TIMER_COUNT; i++) app_state.device_timings[i] = device_timers[0].get_result_by_idx(i);
   }
 
-  auto &buf = storage.get_buffer_by_name("transfer_function");
-  buf.update_data(tf_data);
-  vmc.logical_device.get().waitIdle();
-
   vk::ResultValue<uint32_t> image_idx = vmc.logical_device.get().acquireNextImageKHR(swapchain.get(), uint64_t(-1), syncs[0].get_semaphore(Synchronization::S_IMAGE_AVAILABLE));
   VE_CHECK(image_idx.result, "Failed to acquire next image!");
 
@@ -184,6 +191,10 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
 
   app_state.cam.update_data();
   storage.get_buffer_by_name("ray_marcher_uniform_buffer").update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
+  
+  auto &buf = storage.get_buffer_by_name("transfer_function");
+  buf.update_data(tf_data);
+  vmc.logical_device.get().waitIdle();
 
   vk::CommandBuffer &cb = vcc.get_one_time_transfer_buffer();
 
@@ -205,7 +216,7 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
   syncs[0].wait_for_fence(Synchronization::F_COPY_FINISHED);
   syncs[0].reset_fence(Synchronization::F_COPY_FINISHED);
 
-  vk::CommandBuffer &compute_cb = vcc.begin(vcc.compute_cbs[0]);
+  vk::CommandBuffer& compute_cb = vcc.begin(vcc.compute_cbs[0]);
   device_timers[0].reset(compute_cb, {DeviceTimer::VOLUME});
   device_timers[0].start(compute_cb, DeviceTimer::VOLUME, vk::PipelineStageFlagBits::eComputeShader);
   ray_marcher.compute(compute_cb, app_state, read_only_buffer_idx);
@@ -258,6 +269,12 @@ void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pair
   transfer_function.update(persistence_pairs, volume, tf_data);
 }
 
+void WorkContext::set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs)
+{
+  gradient_persistence_pairs = pairs;
+  ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
+}
+
 void WorkContext::load_persistence_diagram_texture(const std::string &filePath)
 {
   try {
@@ -268,9 +285,9 @@ void WorkContext::load_persistence_diagram_texture(const std::string &filePath)
   }
 }
 
-void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index)
+void WorkContext::volume_highlight_persistence_pairs(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index)
 {
-  tf_data.assign(256, glm::vec4(0.0f));
+  tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
 
   uint32_t max_pers = std::max(global_max_persistence, 1u);
   for (auto& entry : pairs)
@@ -325,23 +342,31 @@ void WorkContext::volume_highlight_persistence_pairs_gradient(const std::vector<
     uint32_t di = std::clamp(p.death, 0u, 255u);
     if (bi > di) std::swap(bi, di);
 
-    for (uint32_t i = bi; i <= di; ++i)
+    for (int g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = glm::vec4(rgb, alpha);
+      int base = g * AppState::TF2D_BINS;
+      for (uint32_t s = bi; s <= di; ++s)
+      {
+        tf_data[base + s] = glm::vec4(rgb, alpha);
+      }
     }
-  }
+  } 
 
   for (auto& assign : custom_colors)
   {
-    auto& p  = assign.first;
+    auto& p = assign.first;
     auto& col = assign.second;
-    uint32_t b = std::clamp(p.birth, 0u, 255u);
-    uint32_t d = std::clamp(p.death, 0u, 255u);
-    if (b > d) std::swap(b, d);
+    uint32_t bi = std::clamp(p.birth, 0u, (uint32_t)AppState::TF2D_BINS - 1);
+    uint32_t di = std::clamp(p.death, 0u, (uint32_t)AppState::TF2D_BINS - 1);
+    if (bi > di) std::swap(bi, di);
 
-    for (uint32_t i = b; i <= d; ++i)
+    for (int g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = col;
+      int base = g * AppState::TF2D_BINS;
+      for (uint32_t s = bi; s <= di; ++s)
+      {
+        tf_data[base + s] = col;
+      }
     }
   }
 }
@@ -357,7 +382,7 @@ static std::pair<uint32_t, uint32_t> clamp_and_sort_range(const PersistencePair&
 
 void WorkContext::highlight_diff(const PersistencePair &base, const PersistencePair &mask)
 {
-  tf_data.assign(AppState::TF2D_BINS, glm::vec4(0.0f));
+  tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
 
   std::pair<uint32_t,uint32_t> rangeA = clamp_and_sort_range(base);
   uint32_t b0 = rangeA.first;
@@ -371,25 +396,31 @@ void WorkContext::highlight_diff(const PersistencePair &base, const PersistenceP
   if (ui.diff_enabled)
   {
     ImVec4 c = ui.diff_color;
-    glm::vec3 diff_col{c.x, c.y, c.z};
-    float alpha = c.w;
-
-    for (uint32_t i = b0; i <= d0; ++i)
+    glm::vec4 col(c.x, c.y, c.z, c.w);
+    for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = glm::vec4(diff_col, alpha);
+      uint32_t base_idx = g * AppState::TF2D_BINS;
+      for (uint32_t s = b0; s <= d0; ++s)
+      {
+        tf_data[base_idx + s] = col;
+      }
     }
   }
 
   // mask out [b1..d1] (transparent)
-  for (uint32_t i = b1; i <= d1; ++i)
+  for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
   {
-    tf_data[i] = glm::vec4(0.0f);
+    uint32_t baseIdx = g * AppState::TF2D_BINS;
+    for (uint32_t s = b1; s <= d1; ++s)
+    {
+      tf_data[baseIdx + s] = glm::vec4(0.0f);
+    }
   }
 }
 
 void WorkContext::highlight_intersection(const PersistencePair& a, const PersistencePair& b)
 {
-  tf_data.assign(AppState::TF2D_BINS, glm::vec4(0.0f));
+  tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
 
   std::pair<uint32_t,uint32_t> rangeA = clamp_and_sort_range(a);
   uint32_t a0 = rangeA.first;
@@ -407,25 +438,33 @@ void WorkContext::highlight_intersection(const PersistencePair& a, const Persist
   if (ui.intersect_enabled_common && start <= end)
   {
     ImVec4 c = ui.intersect_color_common;
-    glm::vec4 col{c.x, c.y, c.z, c.w};
-    for (uint32_t i = start; i <= end; ++i)
+    glm::vec4 col(c.x, c.y, c.z, c.w);
+    for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = col;
+      uint32_t base_idx = g * AppState::TF2D_BINS;
+      for (uint32_t s = start; s <= end; ++s)
+      {
+        tf_data[base_idx + s] = col;
+      }
     }
-}
+  }
 
   // paint A-only before/after
   if (ui.intersect_enabled_Aonly)
   {
     ImVec4 cA = ui.intersect_color_Aonly;
     glm::vec4 colA{cA.x, cA.y, cA.z, cA.w};
-    for (uint32_t i = a0; i < start; ++i)
+    for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = colA;
-    }
-    for (uint32_t i = end + 1; i <= a1; ++i)
-    {
-      tf_data[i] = colA;
+      uint32_t base_idx = g * AppState::TF2D_BINS;
+      for (uint32_t s = a0; s < start; ++s)
+      {
+        tf_data[base_idx + s] = colA;
+      }
+      for (uint32_t s = end + 1; s <= a1; ++s)
+      {
+        tf_data[base_idx + s] = colA;
+      }
     }
   }
 
@@ -434,16 +473,21 @@ void WorkContext::highlight_intersection(const PersistencePair& a, const Persist
   {
     ImVec4 cB = ui.intersect_color_Bonly;
     glm::vec4 colB{cB.x, cB.y, cB.z, cB.w};
-    for (uint32_t i = b0; i < start; ++i)
+    for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = colB;
-    }
-    for (uint32_t i = end + 1; i <= b1; ++i)
-    {
-      tf_data[i] = colB;
+      uint32_t base_idx = g * AppState::TF2D_BINS;
+      for (uint32_t s = b0; s < start; ++s)
+      {
+        tf_data[base_idx + s] = colB;
+      }
+      for (uint32_t s = end + 1; s <= b1; ++s)
+      {
+        tf_data[base_idx + s] = colB;
+      }
     }
   }
 }
+
 void WorkContext::highlight_union(const PersistencePair& a, const PersistencePair& b)
 {
   tf_data.assign(AppState::TF2D_BINS, glm::vec4(0.0f));
@@ -461,45 +505,39 @@ void WorkContext::highlight_union(const PersistencePair& a, const PersistencePai
   {
     ImVec4 cA = ui.union_color_Aonly;
     glm::vec4 colA{cA.x, cA.y, cA.z, cA.w};
-    for (uint32_t i = a0; i <= a1; ++i)
+    for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
     {
-      tf_data[i] = colA;
+      uint32_t base_idx = g * AppState::TF2D_BINS;
+      for (uint32_t s = a0; s <= a1; ++s)
+      {
+        tf_data[base_idx + s] = colA;
+      }
     }
   }
 
   // paint common or B-only
-  for (uint32_t i = b0; i <= b1; ++i)
+  for (uint32_t s = b0; s <= b1; ++s)
   {
-    bool inA = (i >= a0 && i <= a1);
-    if (inA)
+    bool inA = (s >= a0 && s <= a1);
+    if (inA && ui.union_enabled_common)
     {
-      if (ui.union_enabled_common)
+      ImVec4 cC = ui.union_color_common;
+      glm::vec4 colC(cC.x, cC.y, cC.z, cC.w);
+      for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
       {
-        ImVec4 cC = ui.union_color_common;
-        tf_data[i] = glm::vec4(cC.x, cC.y, cC.z, cC.w);
+        tf_data[g * AppState::TF2D_BINS + s] = colC;
       }
     }
-    else 
+    else if (!inA && ui.union_enabled_Bonly)
     {
-      if (ui.union_enabled_Bonly)
+      ImVec4 cB = ui.union_color_Bonly;
+      glm::vec4 colB(cB.x, cB.y, cB.z, cB.w);
+      for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
       {
-        ImVec4 cB = ui.union_color_Bonly;
-        tf_data[i] = glm::vec4(cB.x, cB.y, cB.z, cB.w);
+        tf_data[g * AppState::TF2D_BINS + s] = colB;
       }
     }
   }
-}
-
-void WorkContext::set_raw_persistence_pairs(const std::vector<PersistencePair>& pairs)
-{
-  raw_persistence_pairs = pairs;
-  ui.set_persistence_pairs(&raw_persistence_pairs);
-}
-
-void WorkContext::set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs)
-{
-  gradient_persistence_pairs = pairs;
-  ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
 }
 
 void WorkContext::export_persistence_pairs_to_csv(const std::vector<PersistencePair>& scalar_pairs, const std::vector<PersistencePair>& gradient_pairs, const std::string& scalar_filename, const std::string& gradient_filename) const
@@ -552,17 +590,23 @@ void WorkContext::apply_custom_color_to_volume(const std::vector<PersistencePair
       custom_colors.emplace_back(p, chosen_color);
   }
 
-  // replay *all* custom assignments
-  for (auto &assign : custom_colors)
+  // replay all custom assignments
+  for (const auto &assign : custom_colors)
   {
-    const auto &p = assign.first;
-    const auto &col = assign.second;
-    uint32_t b = std::clamp(p.birth, uint32_t(0), uint32_t(255));
-    uint32_t d = std::clamp(p.death, uint32_t(0), uint32_t(255));
+    const PersistencePair &p = assign.first;
+    const glm::vec4 &col = assign.second;
+
+    uint32_t b = std::clamp(p.birth, 0u, AppState::TF2D_BINS - 1);
+    uint32_t d = std::clamp(p.death, 0u, AppState::TF2D_BINS - 1);
     if (b > d) std::swap(b, d);
-    for (uint32_t i = b; i <= d; ++i)
+
+    for (uint32_t g = 0; g < AppState::TF2D_BINS; ++g)
     {
-        tf_data[i] = col;
+      uint32_t base_idx = g * AppState::TF2D_BINS;
+      for (uint32_t s = b; s <= d; ++s)
+      {
+          tf_data[base_idx + s] = col;
+      }
     }
   }
 }
@@ -579,7 +623,6 @@ void WorkContext::reset_custom_colors()
   for (const auto &p : persistence_pairs)
       all_hits.emplace_back(p, 1.0f);
 
-  volume_highlight_persistence_pairs_gradient(all_hits, ramp);
+  volume_highlight_persistence_pairs(all_hits, ramp);
 }
-
 }//namespace ve

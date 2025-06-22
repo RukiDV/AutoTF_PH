@@ -21,15 +21,7 @@ void RayMarcher::setup_storage(AppState& app_state, const Volume& volume, const 
   
   buffers[VOLUME_BUFFER] = storage.add_buffer("volume", volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 
-  //std::vector<glm::vec4> initial_tf_data(128, glm::vec4(1.0, 1.0, 1.0, 0.0));
-  //initial_tf_data.resize(256, glm::vec4(1.0, 1.0, 1.0, 1.0));
-  std::vector<glm::vec4> initial_tf_data(AppState::TF2D_BINS, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-  for (int i = 0; i < AppState::TF2D_BINS; ++i) 
-  {
-    float value = i / 255.0f;
-    initial_tf_data[i] = glm::vec4(value, value, value, 1.0);
-  }
-  buffers[TF_BUFFER] = storage.add_buffer("transfer_function", initial_tf_data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
+  buffers[TF_BUFFER] = storage.add_buffer("transfer_function", AppState::TF2D_BINS * AppState::TF2D_BINS * sizeof(glm::vec4), vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 
   buffers[GRADIENT_VOLUME_BUFFER] = storage.add_buffer("gradient_volume", gradient_volume.data, vk::BufferUsageFlagBits::eStorageBuffer, false, QueueFamilyFlags::Transfer | QueueFamilyFlags::Compute);
 
