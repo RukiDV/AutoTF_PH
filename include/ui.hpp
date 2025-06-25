@@ -47,7 +47,6 @@ public:
   ImVec4 union_color_common = ImVec4(1.0f, 0.0f, 1.0f, 1.0f);
   bool union_enabled_common = true;
   const Volume* gradient_volume = nullptr;
-
   void construct(VulkanCommandContext& vcc, const RenderPass& render_pass, uint32_t frames);
   void destruct();
   void draw(vk::CommandBuffer& cb, AppState& app_state);
@@ -73,7 +72,6 @@ public:
   void set_on_clear_custom_colors(const std::function<void()>& cb);
   void set_gradient_volume(const Volume* vol);
   void set_on_tf2d_selected(const std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)>& cb);
-  void mark_tf2d_hist_dirty();
   
   const Volume* get_volume() const { return volume; }
   ImVec4 get_custom_start_color() const { return custom_start_color; }
@@ -81,7 +79,7 @@ public:
   float get_custom_falloff() const { return custom_opacity_falloff; }
   int get_selected_ramp() const { return selected_ramp; }
 
-  private:
+private:
   const VulkanMainContext& vmc;
   vk::DescriptorPool imgui_pool;
   MergeTree* merge_tree = nullptr;
@@ -99,9 +97,8 @@ public:
   float death_range[2] = { 0.0f, 255.0f};
   float persistence_range[2] = { 0.0f, 255.0f};
   float blink_timer = 0.0f;
-  int selected_idx = -1; // –1 means “no selection”
+  int selected_idx = -1; // no selection
   ImU32 selected_color = IM_COL32(255,0,255,255);
-  bool brush_active = false;
   ImVec2 brush_start;
   ImVec2 brush_end;
   float brush_outer_mult = 1.0f;
@@ -112,10 +109,26 @@ public:
   float highlight_opacity = 1.0f;
   int selected_set_op = 0; // 0: diff, 1: intersect, 2: union
   ImVec4 selected_brush_color{1,0,0,1};
-  bool tf2d_hist_dirty = true;
-  ImVec2 tf2d_brush_start, tf2d_brush_end;
-  bool tf2d_brush_active = false;
-  ImVec4 tf2d_color = ImVec4(1,0,0,1);
+
+  bool tf2d_drag = false;
+  ImVec2 tf2d_start;
+  ImVec2 tf2d_end;
+  bool region_defined = false;
+  ImVec2 region_start;
+  ImVec2 region_end;
+  bool region_move = false;
+  ImVec2 region_off;
+  bool region_resize = false;
+  int resize_corner = -1;
+  float corner_r = 6.0f;
+  bool brush_mode = false;
+  float brush_radius_px    = 6.0f;
+  bool brush_active = false;
+  ImVec4 brush_color = ImVec4(0,1,1,1);
+  std::vector<ImVec2> brush_points;
+  int max_brush_hits = 1;
+  ImVec4  rect_color = ImVec4(1,1,0,1);
+
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<double> xs, ys;
   std::vector<float > pers;
@@ -131,8 +144,6 @@ public:
   std::vector<ImU32> brush_cluster_outlines;
   std::vector<int> region_selected_idxs;
   std::vector<ImVec4> selected_custom_colors_per_point;
-  std::vector<double> tf2d_hist;
-  std::vector<double> tf2d_hist_double;
   std::vector<std::pair<int,int>> painted_bins;
   std::function<void(int)> on_merge_mode_changed;
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;

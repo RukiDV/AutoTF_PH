@@ -126,6 +126,17 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
     this->reset_custom_colors();
   });
 
+  ui.set_on_tf2d_selected([this](const std::vector<std::pair<int,int>>& bins, const ImVec4& col)
+  {
+    tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
+    for (auto& b : bins)
+    {
+        int s = b.first, g = b.second;
+        size_t idx = size_t(g) * AppState::TF2D_BINS + size_t(s);
+        tf_data[idx] = glm::vec4(col.x, col.y, col.z, col.w);
+    }
+  });
+
   export_persistence_pairs_to_csv(persistence_pairs, gradient_persistence_pairs, "scalar_pairs.csv", "gradient_pairs.csv");
 
   // load static persistence diagram texture (for reference)

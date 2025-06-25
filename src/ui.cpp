@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <implot.h> 
+#include <set>
 
 #include <iostream>
 #include "threshold_cut.hpp"
@@ -127,9 +128,11 @@ void UI::set_on_merge_mode_changed(const std::function<void(int)>& cb)
     on_merge_mode_changed = cb;
 }
 
-void UI::mark_merge_tree_dirty() { mt_dirty = true; }
+void UI::mark_merge_tree_dirty() 
+{ 
+    mt_dirty = true;
+}
 
-// change to accept ramp arg
 void UI::set_on_brush_selected_gradient(const std::function<void(const std::vector<std::pair<PersistencePair, float>>&, int)>& cb)
 {
     on_brush_selected_gradient = cb;
@@ -167,17 +170,11 @@ void UI::set_on_clear_custom_colors(const std::function<void()>& cb)
 void UI::set_gradient_volume(const Volume* vol)
 {
     gradient_volume = vol;
-    tf2d_hist_dirty = true; 
 }
 
 void UI::set_on_tf2d_selected(const std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)>& cb)
 {
     on_tf2d_selected = cb;
-}
-
-void UI::mark_tf2d_hist_dirty()
-{
-    tf2d_hist_dirty = true;
 }
 
 void UI::clear_selection()
@@ -1348,130 +1345,287 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     }
     ImGui::End();
 
-    static float brush_radius_px = 8.0f;
-    ImGui::SliderFloat("Brush Radius (px)", &brush_radius_px, 1.0f, 64.0f, "%.1f");
 
+    // 2D transfer function editor
     ImGui::Begin("2D TF Editor");
-    if (volume && gradient_volume)
     {
-        constexpr int SB = TF2D_BINS; // scalar bins
-        constexpr int GB = TF2D_BINS; // gradient bins
-
-        // compute scalar and gradient ranges
-        auto [smin, smax] = transfer_function->compute_min_max_scalar(*volume);
-        float gmin = FLT_MAX, gmax = -FLT_MAX;
-        for (auto raw : gradient_volume->data)
-        {
-            float f = float(raw);
-            gmin = std::min(gmin, f);
-            gmax = std::max(gmax, f);
-        }
-        ImGui::Text("Scalar [%.2f -> %.2f]   Gradient [%.2f → %.2f]", smin, smax, gmin, gmax);
-
-        // percentile clipping controls
-        static float sClipP = 1.0f, gClipP = 1.0f;
-        ImGui::SliderFloat("Scalar Clip Percentile", &sClipP, 0.5f, 1.0f, "p = %.2f");
-        ImGui::SliderFloat("Gradient Clip Percentile", &gClipP, 0.5f, 1.0f, "p = %.2f");
-        ImGui::Separator();
-
-        // figure thresholds
-        std::vector<float> svals(volume->data.begin(), volume->data.end());
-        std::vector<float> gvals(gradient_volume->data.begin(), gradient_volume->data.end());
-        size_t sIdx = size_t(sClipP * (svals.size() - 1));
-        size_t gIdx = size_t(gClipP * (gvals.size() - 1));
-        std::nth_element(svals.begin(), svals.begin() + sIdx, svals.end());
-        std::nth_element(gvals.begin(), gvals.begin() + gIdx, gvals.end());
-        float smaxThr = svals[sIdx], gmaxThr = gvals[gIdx];
-        ImGui::Text("Clipped -> Scalar max = %.2f   Gradient max = %.2f", smaxThr, gmaxThr);
-
-        // build joint histogram
-        std::vector<double> hist(SB*GB, 0.0);
+        static std::vector<int> brush_hits(AppState::TF2D_BINS * AppState::TF2D_BINS, 0);
+    
+        // build 2D histogram
+        static std::vector<double> hist;
+        hist.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, 0.0);
+        
         for (size_t i = 0; i < volume->data.size(); ++i)
         {
-            float sv = (volume->data[i] - smin) / (smaxThr - smin + 1e-6f);
-            float gv = (gradient_volume->data[i] - gmin) / (gmaxThr - gmin + 1e-6f);
-            int bx = std::clamp(int(sv * (SB-1)), 0, SB-1);
-            int by = std::clamp(int(gv * (GB-1)), 0, GB-1);
-            hist[by*SB + bx] += 1.0;
+            int scalar = int(volume->data[i]);
+            int gradient = int(gradient_volume->data[i]);
+            if (scalar >= 0 && scalar < AppState::TF2D_BINS && gradient >= 0 && gradient < AppState::TF2D_BINS)
+            {
+                int flipped_gradient = (AppState::TF2D_BINS - 1) - gradient;
+                hist[ flipped_gradient * AppState::TF2D_BINS + scalar ] += 1.0;
+            }
         }
 
-        // brush radius slider
-        static float brush_radius_px = 8.0f;
-        ImGui::SliderFloat("Brush Radius (px)", &brush_radius_px, 1.0f, 64.0f, "%.1f");
-
-        // render heatmap and paint-brush logic
-        if (ImPlot::BeginPlot("##TF2D", ImVec2(-1,300)))
+        // log‐scale to density
+        static std::vector<float> density;
+        density.resize(AppState::TF2D_BINS * AppState::TF2D_BINS);
+        
+        for (int i = 0; i < AppState::TF2D_BINS * AppState::TF2D_BINS; ++i)
         {
-            ImPlot::SetupAxes("Scalar","Gradient");
-            ImPlot::SetupAxisLimits(ImAxis_X1, 0, SB, ImPlotCond_Always);
-            ImPlot::SetupAxisLimits(ImAxis_Y1, 0, GB, ImPlotCond_Always);
+            density[i] = std::log10(hist[i] + 1.0f);
+        }
 
-            ImPlot::PushColormap(ImPlotColormap_Viridis);
-            ImPlot::PlotHeatmap("##hist2d", hist.data(), GB, SB, 0, SB-1, "", ImPlotPoint(0,0), ImPlotPoint(SB,GB), ImPlotHeatmapFlags_None);
-            ImPlot::PopColormap();
+        // find dmax for colormap
+        float dmax = 0.0f;
+        for (float v : density) dmax = std::max(dmax, v);
+        if (dmax < 1e-3f) dmax = 1.0f;
 
-            // paint brush state
-            static std::vector<std::pair<int,int>> painted_bins;
-            ImGuiIO& io = ImGui::GetIO();
-
-            if (ImPlot::IsPlotHovered())
+        // helper to fire selection callback fro rectangle
+        auto fireRegion = [&](ImVec2 a, ImVec2 b)
+        {
+            ImPlotPoint p0 = ImPlot::PixelsToPlot(a);
+            ImPlotPoint p1 = ImPlot::PixelsToPlot(b);
+            int s0 = std::clamp((int)floor (std::min(p0.x,p1.x)), 0, int(AppState::TF2D_BINS) - 1);
+            int s1 = std::clamp((int)ceil (std::max(p0.x,p1.x)), 0, int(AppState::TF2D_BINS) - 1);
+            int g0 = std::clamp((int)floor (std::min(p0.y,p1.y)), 0, int(AppState::TF2D_BINS) - 1);
+            int g1 = std::clamp((int)ceil (std::max(p0.y,p1.y)), 0, int(AppState::TF2D_BINS) - 1);
+            
+            if (on_tf2d_selected)
             {
-                // stamping while button down
-                if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                std::vector<std::pair<int,int>> sel;
+                sel.reserve((s1-s0+1)*(g1-g0+1));
+                for (int g = g0; g <= g1; ++g)
                 {
-                    ImVec2 mpos = io.MousePos;
-                    ImPlotPoint pp = ImPlot::PixelsToPlot(mpos);
-                    int cx = std::clamp(int(std::round(pp.x)), 0, SB-1);
-                    int cy = std::clamp(int(std::round(pp.y)), 0, GB-1);
-
-                    ImVec2 p0 = ImPlot::PlotToPixels(0,0);
-                    ImVec2 p1 = ImPlot::PlotToPixels(double(SB),double(GB));
-                    float px_per_bin_x = (p1.x - p0.x)/float(SB);
-                    float px_per_bin_y = (p1.y - p0.y)/float(GB);
-                    int rx = std::max(1, int(std::ceil(brush_radius_px/px_per_bin_x)));
-                    int ry = std::max(1, int(std::ceil(brush_radius_px/px_per_bin_y)));
-
-                    // stamp circle of bins
-                    for (int by = cy-ry; by <= cy+ry; ++by)
+                    for (int s = s0; s <= s1; ++s)
                     {
-                        if (by<0||by>=GB) continue;
-                        for (int bx = cx-rx; bx <= cx+rx; ++bx)
+                        sel.emplace_back(s,g);
+                    }
+                }
+                on_tf2d_selected(sel, rect_color);
+            }
+        };
+
+         // helper to convert pixel to plot point and circle of coverage into bin‐hits
+        auto fireBrush = [&](const std::vector<ImVec2>& pts)
+        {
+            if (!on_tf2d_selected || pts.empty()) return;
+            std::set<std::pair<int,int>> sel_set;
+            for (auto& p : pts)
+            {
+                ImPlotPoint pp = ImPlot::PixelsToPlot(p);
+                int sx0 = std::clamp(int(floor(pp.x - brush_radius_px)), 0, int(AppState::TF2D_BINS)-1);
+                int sx1 = std::clamp(int(ceil (pp.x + brush_radius_px)), 0, int(AppState::TF2D_BINS)-1);
+                int gy0 = std::clamp(int(floor(pp.y - brush_radius_px)), 0, int(AppState::TF2D_BINS)-1);
+                int gy1 = std::clamp(int(ceil (pp.y + brush_radius_px)), 0, int(AppState::TF2D_BINS)-1);
+                for (int gy = gy0; gy <= gy1; ++gy)
+                {
+                    for (int sx = sx0; sx <= sx1; ++sx)
+                    {
+                        float dx = (sx + 0.5f) - pp.x;
+                        float dy = (gy + 0.5f) - pp.y;
+                        if (dx*dx + dy*dy <= brush_radius_px*brush_radius_px)
                         {
-                            if (bx<0||bx>=SB) continue;
-                            float dx = (bx-cx)*px_per_bin_x;
-                            float dy = (by-cy)*px_per_bin_y;
-                            if (dx*dx+dy*dy <= brush_radius_px*brush_radius_px)
-                                painted_bins.emplace_back(bx,by);
+                            sel_set.emplace(sx, gy);
+                            // accumulate hit
+                            int idx = gy * AppState::TF2D_BINS + sx;
+                            brush_hits[idx]++;
+                            max_brush_hits = std::max(max_brush_hits, brush_hits[idx]);
                         }
                     }
                 }
+            }
+            std::vector<std::pair<int,int>> sel(sel_set.begin(), sel_set.end());
+            on_tf2d_selected(sel, brush_color);
+        };
 
-                // on mouse‐release, fire callback then clear
-                static bool was_down = false;
-                bool now_down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-                if (was_down && !now_down && !painted_bins.empty() && on_tf2d_selected)
+        // compute highest non empty gradient bin
+        int max_gradient = 0;
+        for (int gradient = 0; gradient < AppState::TF2D_BINS; ++gradient)
+        {
+            for (int scalar = 0; scalar < AppState::TF2D_BINS; ++scalar)
+            {
+                if (hist[gradient * AppState::TF2D_BINS + scalar] > 0.0)
                 {
-                    on_tf2d_selected(painted_bins, tf2d_color);
-                    painted_bins.clear();
+                    max_gradient = std::max(max_gradient, gradient);
                 }
-                was_down = now_down;
+            }
+        }
+        float plot_max_gradient = float(max_gradient) + 1.0f;
 
-                // draw circle cursor
-                ImDrawList* fg = ImGui::GetForegroundDrawList();
-                fg->AddCircle(io.MousePos, brush_radius_px, IM_COL32(255,255,0,150), 32, 2.0f);
+        ImPlot::SetNextAxisLimits(ImAxis_X1, 0, (double)AppState::TF2D_BINS, ImPlotCond_Always);
+        ImPlot::SetNextAxisLimits(ImAxis_Y1, 0, (double)plot_max_gradient, ImPlotCond_Always);
+
+        ImGui::Checkbox("Brush Mode", &brush_mode);
+        if (brush_mode)
+        {
+            ImGui::SameLine();
+            ImGui::SliderFloat("Radius (px)", &brush_radius_px, 2.0f, 100.0f);
+            ImGui::Separator();
+            if (ImGui::Button("Clear Brush"))
+            {
+                brush_points.clear();
+                std::fill(brush_hits.begin(), brush_hits.end(), 0);
+                max_brush_hits = 1;
+            }
+            ImGui::SameLine();
+            ImGui::ColorEdit4("Brush Color", (float*)&brush_color, ImGuiColorEditFlags_NoInputs);
+        }
+
+         ImGui::SameLine();
+        ImGui::ColorEdit4("Rect Color", (float*)&rect_color, ImGuiColorEditFlags_NoInputs);
+
+        if (ImPlot::BeginPlot("TF2D Heatmap", ImVec2(-1,300)))
+        {
+            ImU32 rect_preview_col = ImGui::ColorConvertFloat4ToU32(ImVec4(rect_color.x, rect_color.y, rect_color.z, rect_color.w * 0.6f));
+            ImU32 rect_final_col = ImGui::ColorConvertFloat4ToU32(rect_color);
+            ImPlot::SetupAxes("Scalar Value", "Gradient Magnitude");
+
+            // heatmap for density visualization
+            ImPlot::PushColormap(ImPlotColormap_Viridis);
+            ImPlot::PlotHeatmap("##heatmap", density.data(), AppState::TF2D_BINS, AppState::TF2D_BINS, 0.0, dmax, nullptr, ImPlotPoint(0, 0), ImPlotPoint(AppState::TF2D_BINS, AppState::TF2D_BINS), ImPlotHeatmapFlags_None);
+            ImPlot::ColormapScale("Density", 0.0, dmax, ImVec2(10, 300), "%.1f");
+            ImPlot::PopColormap();
+            
+            // interactive ctrl+drag, resize, move
+            ImGuiIO& io = ImGui::GetIO();
+            ImVec2 mp = io.MousePos;
+
+            // brush mode
+            if (brush_mode && ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0))
+            {
+                brush_active = true;
+                brush_points.clear();
+                brush_points.push_back(mp);
             }
 
-            // draw painted points overlay
-            ImDrawList* pd = ImPlot::GetPlotDrawList();
-            ImU32 col = ImGui::ColorConvertFloat4ToU32(tf2d_color);
-            for (auto &b : painted_bins)
+            // during stroke: live preview + accumulation
+            if (brush_active && ImGui::IsMouseDragging(0))
             {
-                ImVec2 p = ImPlot::PlotToPixels(double(b.first), double(b.second));
-                pd->AddCircleFilled(p, brush_radius_px, col, 32);
+                brush_points.push_back(mp);
+                auto dl = ImPlot::GetPlotDrawList();
+                ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(brush_color.x, brush_color.y, brush_color.z, brush_color.w * 0.5f));
+                dl->AddCircleFilled(mp, brush_radius_px, col);
+                fireBrush(brush_points);
+            }
+
+            if (brush_active && ImGui::IsMouseReleased(0))
+            {
+                brush_active = false;
+                fireBrush(brush_points);
+            }
+
+            // rectangle mode
+            // ctrl+drag new region
+            if (ImPlot::IsPlotHovered() && io.KeyCtrl)
+            {
+                if (ImGui::IsMouseClicked(0))
+                {
+                    tf2d_drag = true;
+                    tf2d_start = mp;
+                    tf2d_end = mp;
+                }
+                if (tf2d_drag && ImGui::IsMouseDragging(0))
+                    tf2d_end = mp;
+                if (tf2d_drag)
+                {
+                    auto dl = ImPlot::GetPlotDrawList();
+                    dl->AddRect(tf2d_start, tf2d_end, rect_final_col, 0,0,2.0f);
+                    fireRegion(tf2d_start, tf2d_end);
+                }
+                if (tf2d_drag && ImGui::IsMouseReleased(0))
+                {
+                    tf2d_drag = false;
+                    region_defined = true;
+                    region_start = tf2d_start;
+                    region_end = tf2d_end;
+                }
+            }
+            // click on existing to enter resize/move
+            else if (region_defined && ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0))
+            {
+                ImVec2 tl = region_start, br = region_end;
+                ImVec2 tr{br.x, tl.y}, bl{tl.x, br.y};
+                std::array<ImVec2,4> C{tl,tr,br,bl};
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (fabs(mp.x - C[i].x) < corner_r && fabs(mp.y - C[i].y) < corner_r)
+                    {
+                        region_resize = true;
+                        resize_corner = i;
+                        break;
+                    }
+                }
+                if (!region_resize)
+                {
+                    ImVec2 mn{ std::min(tl.x,br.x), std::min(tl.y,br.y) };
+                    ImVec2 mx{ std::max(tl.x,br.x), std::max(tl.y,br.y) };
+                    if (mp.x>=mn.x && mp.x<=mx.x && mp.y>=mn.y && mp.y<=mx.y)
+                    {
+                        region_move = true;
+                        region_off  = { mp.x-mn.x, mp.y-mn.y };
+                    }
+                }
+            }
+            // resize‐drag
+            if (region_resize && ImGui::IsMouseDragging(0))
+            {
+                switch(resize_corner)
+                {
+                    case 0: region_start = mp; break;
+                    case 1: region_start.y = mp.y; region_end.x = mp.x; break;
+                    case 2: region_end   = mp; break;
+                    case 3: region_start.x = mp.x; region_end.y = mp.y; break;
+                }
+                fireRegion(region_start, region_end);
+            }
+            if (region_resize && ImGui::IsMouseReleased(0))
+            {
+                region_resize = false;
+                resize_corner = -1;
+            }
+            // move drag
+            if (region_move && ImGui::IsMouseDragging(0))
+            {
+                ImVec2 sz{region_end.x-region_start.x, region_end.y-region_start.y};
+                ImVec2 mn{mp.x-region_off.x, mp.y-region_off.y};
+                region_start = mn;
+                region_end = { mn.x+sz.x, mn.y+sz.y };
+                fireRegion(region_start, region_end);
+            }
+            if (region_move && ImGui::IsMouseReleased(0))
+            {
+                region_move = false;
+            }
+
+            // draw final rectangle
+            if (region_defined)
+            {
+                auto dl = ImPlot::GetPlotDrawList();
+                 ImU32 u32 = ImGui::ColorConvertFloat4ToU32(rect_color);
+                dl->AddRect(region_start, region_end, rect_final_col, 0, 0, 2.5f);
+            }
+
+            // draw brush points
+            auto dl = ImPlot::GetPlotDrawList();
+            int bins = AppState::TF2D_BINS;
+            for (int gy = 0; gy < bins; ++gy)
+            {
+                for (int sx = 0; sx < bins; ++sx)
+                {
+                    int idx = gy*bins + sx;
+                    int hits = brush_hits[idx];
+                    if (hits)
+                    {
+                        ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(sx+0.5, gy+0.5));
+                        float alpha = float(hits)/float(max_brush_hits);
+                        float a = 0.1f + alpha*(brush_color.w - 0.1f);
+                        ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(brush_color.x, brush_color.y, brush_color.z, a));
+                        dl->AddCircleFilled(ImVec2(pp.x, pp.y ), brush_radius_px, col);
+                    }
+                }
             }
             ImPlot::EndPlot();
         }
-        ImGui::ColorEdit4("TF2D Color", &tf2d_color.x, ImGuiColorEditFlags_AlphaBar);
     }
     ImGui::End();
     ImGui::EndFrame();
