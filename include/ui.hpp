@@ -72,6 +72,22 @@ public:
   void set_on_clear_custom_colors(const std::function<void()>& cb);
   void set_gradient_volume(const Volume* vol);
   void set_on_tf2d_selected(const std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)>& cb);
+  void set_on_reproject(const std::function<void()>& cb);
+  void set_on_persistence_reprojected(const std::function<void(const std::vector<std::pair<int,int>>&)>& cb);
+  void set_persistence_pairs(
+  const std::vector<PersistencePair>* pairs,
+  std::vector<std::vector<size_t>>&& voxel_indices);
+  std::vector<std::pair<int,int>> persistence_bins;
+  void set_on_evaluation(const std::function<void(float,float,float,float)>& cb);
+  float last_J_arc = 0.0f;
+  float last_J_box = 0.0f;
+  float last_precision = 0.0f;
+  float last_recall = 0.0f;
+  bool  last_metrics_valid = false;
+  bool pd_preview_active = false;
+  std::vector<std::pair<int,int>> pd_preview_bins;
+  std::vector<ImVec2> persistence_voxels;
+  std::function<void(float J_arc, float J_box, float precision, float recall)> on_evaluation;
   
   const Volume* get_volume() const { return volume; }
   ImVec4 get_custom_start_color() const { return custom_start_color; }
@@ -128,6 +144,7 @@ private:
   std::vector<ImVec2> brush_points;
   int max_brush_hits = 1;
   ImVec4  rect_color = ImVec4(1,1,0,1);
+  std::vector<std::vector<size_t>> persistence_voxel_indices;
 
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<double> xs, ys;
@@ -158,5 +175,7 @@ private:
   std::function<void()> on_clear_custom_colors;
   std::function<void(const std::vector<PersistencePair>&, const ImVec4&)> on_color_chosen{};
   std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)> on_tf2d_selected;
+  std::function<void()> on_reproject;
+  std::function<void(const std::vector<std::pair<int,int>>&)> on_persistence_reprojected;
 };
 } // namespace ve

@@ -36,6 +36,8 @@ public:
   void highlight_diff(const PersistencePair &base, const PersistencePair &mask);
   void highlight_intersection(const PersistencePair &a, const PersistencePair &b);
   void highlight_union(const PersistencePair &a, const PersistencePair &b);
+  void reproject_and_compare();
+  std::vector<std::pair<int,int>> last_tf2d_bins;
 private:  
   const VulkanMainContext& vmc;
   VulkanCommandContext& vcc;

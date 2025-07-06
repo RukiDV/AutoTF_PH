@@ -177,6 +177,24 @@ void UI::set_on_tf2d_selected(const std::function<void(const std::vector<std::pa
     on_tf2d_selected = cb;
 }
 
+void UI::set_on_reproject(const std::function<void()>& cb)
+{
+    on_reproject = cb;
+}
+
+void UI::set_on_persistence_reprojected(const std::function<void(const std::vector<std::pair<int,int>>&)> &user_cb)
+{
+    on_persistence_reprojected = [this, user_cb](const std::vector<std::pair<int,int>>& bins)
+    {
+        persistence_bins = bins;
+        if (user_cb) user_cb(bins);
+    }; 
+}
+
+void UI::set_on_evaluation(const std::function<void(float,float,float,float)>& cb) {
+  on_evaluation = cb;
+}
+
 void UI::clear_selection()
 {
     selected_idx = -1;
@@ -382,7 +400,24 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
             if (viewType == 0)
             {
-                if (on_pair_selected) on_pair_selected(most);
+                if (on_pair_selected) 
+                {
+                    on_pair_selected(most);
+                    // direct B-mask calculation
+                    std::vector<std::pair<int,int>> bins;
+                    bins.reserve(volume->data.size());
+                    // for each voxel of most persistence pair collect all (s,g)
+                    uint32_t b = most.birth, d = most.death;
+                    if (b > d) std::swap(b,d);
+                    for (int g = 0; g < AppState::TF2D_BINS; ++g)
+                    {
+                        for (uint32_t s = b; s <= d; ++s) {
+                            bins.emplace_back(int(s), g);
+                        }
+                    }
+                        if (on_persistence_reprojected)
+                            on_persistence_reprojected(bins);
+                }
                 selected_idx = int(std::distance(draw_pairs->begin(), it));
             }
             else if (viewType == 1)
@@ -750,6 +785,22 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             last_highlight_hits = hits;
                             if (!hits.empty() && on_highlight_selected)
                                 on_highlight_selected(hits, selected_ramp);
+                            
+                            if (!hits.empty() && on_persistence_reprojected) 
+                            {
+                                // take only the first hit for reprojecting
+                                const auto& p = hits[0].first;
+                                // calculate all (s,g) for this pair
+                                std::vector<std::pair<int,int>> bins;
+                                bins.reserve(AppState::TF2D_BINS * (p.death - p.birth + 1));
+                                uint32_t b = p.birth, d = p.death;
+                                if (b > d) std::swap(b,d);
+                                for (int g = 0; g < AppState::TF2D_BINS; ++g)
+                                    for (uint32_t s = b; s <= d; ++s)
+                                        bins.emplace_back(int(s), g);
+                                on_persistence_reprojected(bins);
+                            } 
+                                
                         }
                     }
 
@@ -1471,21 +1522,42 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImGui::ColorEdit4("Brush Color", (float*)&brush_color, ImGuiColorEditFlags_NoInputs);
         }
 
-         ImGui::SameLine();
-        ImGui::ColorEdit4("Rect Color", (float*)&rect_color, ImGuiColorEditFlags_NoInputs);
+        if (ImGui::Button("Evaluate Reprojection"))
+        {
+            if (on_reproject) on_reproject();
+        }
 
+        ImGui::SameLine();
+        ImGui::ColorEdit4("Rect Color", (float*)&rect_color, ImGuiColorEditFlags_NoInputs);
+        
         if (ImPlot::BeginPlot("TF2D Heatmap", ImVec2(-1,300)))
         {
             ImU32 rect_preview_col = ImGui::ColorConvertFloat4ToU32(ImVec4(rect_color.x, rect_color.y, rect_color.z, rect_color.w * 0.6f));
             ImU32 rect_final_col = ImGui::ColorConvertFloat4ToU32(rect_color);
             ImPlot::SetupAxes("Scalar Value", "Gradient Magnitude");
-
+            
             // heatmap for density visualization
             ImPlot::PushColormap(ImPlotColormap_Viridis);
             ImPlot::PlotHeatmap("##heatmap", density.data(), AppState::TF2D_BINS, AppState::TF2D_BINS, 0.0, dmax, nullptr, ImPlotPoint(0, 0), ImPlotPoint(AppState::TF2D_BINS, AppState::TF2D_BINS), ImPlotHeatmapFlags_None);
-            ImPlot::ColormapScale("Density", 0.0, dmax, ImVec2(10, 300), "%.1f");
             ImPlot::PopColormap();
             
+            if (!persistence_bins.empty())
+            {
+                auto dl = ImPlot::GetPlotDrawList();
+                int B = AppState::TF2D_BINS;
+                for (auto& bg : persistence_bins)
+                {
+                    int s = bg.first;
+                    int g = bg.second;
+
+                    if (hist[g * B + s] <= 0.0)
+                        continue;
+
+                    ImPlotPoint p = ImPlot::PlotToPixels(ImPlotPoint(s + 0.5f, (AppState::TF2D_BINS - 1 - g) + 0.5f));
+                    dl->AddCircleFilled(ImVec2((float)p.x, (float)p.y), 3.0f, IM_COL32(0,255,0,200));
+                }
+            }
+
             // interactive ctrl+drag, resize, move
             ImGuiIO& io = ImGui::GetIO();
             ImVec2 mp = io.MousePos;
@@ -1531,6 +1603,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     auto dl = ImPlot::GetPlotDrawList();
                     dl->AddRect(tf2d_start, tf2d_end, rect_final_col, 0,0,2.0f);
                     fireRegion(tf2d_start, tf2d_end);
+                    //if (on_reproject) on_reproject();
                 }
                 if (tf2d_drag && ImGui::IsMouseReleased(0))
                 {
@@ -1577,6 +1650,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     case 3: region_start.x = mp.x; region_end.y = mp.y; break;
                 }
                 fireRegion(region_start, region_end);
+                //if (on_reproject) on_reproject();
             }
             if (region_resize && ImGui::IsMouseReleased(0))
             {
@@ -1591,6 +1665,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 region_start = mn;
                 region_end = { mn.x+sz.x, mn.y+sz.y };
                 fireRegion(region_start, region_end);
+                //if (on_reproject) on_reproject();
             }
             if (region_move && ImGui::IsMouseReleased(0))
             {
@@ -1625,6 +1700,15 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 }
             }
             ImPlot::EndPlot();
+        }
+        if (last_metrics_valid)
+        {
+            ImGui::Separator();
+            ImGui::Text("Evaluation:");
+            ImGui::Text("  J_arc     = %.4f", last_J_arc);
+            ImGui::Text("  J_box     = %.4f", last_J_box);
+            ImGui::Text("  Precision = %.4f", last_precision);
+            ImGui::Text("  Recall    = %.4f", last_recall);
         }
     }
     ImGui::End();

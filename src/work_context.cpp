@@ -128,16 +128,42 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
   ui.set_on_tf2d_selected([this](const std::vector<std::pair<int,int>>& bins, const ImVec4& col)
   {
+    last_tf2d_bins = bins;
     tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
     for (auto& b : bins)
     {
-        int s = b.first, g = b.second;
-        size_t idx = size_t(g) * AppState::TF2D_BINS + size_t(s);
-        tf_data[idx] = glm::vec4(col.x, col.y, col.z, col.w);
+      size_t idx = size_t(b.second) * AppState::TF2D_BINS + size_t(b.first);
+      tf_data[idx] = glm::vec4(col.x, col.y, col.z, col.w);
     }
   });
 
+  ui.set_on_reproject([this]() 
+  { 
+    reproject_and_compare(); 
+  });
+
+  ui.set_on_persistence_reprojected([this](const std::vector<std::pair<int,int>>& bins)
+  {
+    last_tf2d_bins = bins;
+  });
+
+  ui.set_on_evaluation([&](float J_arc, float J_box, float prec, float rec)
+  {
+    ui.last_J_arc         = J_arc;
+    ui.last_J_box         = J_box;
+    ui.last_precision     = prec;
+    ui.last_recall        = rec;
+    ui.last_metrics_valid = true;
+  });
+
   export_persistence_pairs_to_csv(persistence_pairs, gradient_persistence_pairs, "scalar_pairs.csv", "gradient_pairs.csv");
+    // scalar volume
+    std::ofstream outS("volume_data/scalar_volume.bin", std::ios::binary);
+    outS.write(reinterpret_cast<const char*>(scalar_volume->data.data()), scalar_volume->data.size() * sizeof(scalar_volume->data[0]));
+
+    // gradient volume
+    std::ofstream outG("volume_data/gradient_volume.bin", std::ios::binary);
+    outG.write(reinterpret_cast<const char*>(gradient_volume.data.data()), gradient_volume.data.size() * sizeof(gradient_volume.data[0]));
 
   // load static persistence diagram texture (for reference)
   load_persistence_diagram_texture("output_plots/persistence_diagram.png");
@@ -635,5 +661,104 @@ void WorkContext::reset_custom_colors()
       all_hits.emplace_back(p, 1.0f);
 
   volume_highlight_persistence_pairs(all_hits, ramp);
+}
+
+void WorkContext::reproject_and_compare()
+{
+  const int B = AppState::TF2D_BINS;
+
+  // build two independent bin‐masks:
+  // A_mask = manual TF2D selection from the UI (last_tf2d_bins)
+  // P_mask = persistence reprojection mask stored in ui.persistence_bins
+  std::vector<bool> A_mask(B * B, false), P_mask(B * B, false);
+  for (auto &b : last_tf2d_bins)
+      A_mask[b.second * B + b.first] = true;
+  for (auto &b : ui.persistence_bins) // the reprojed persistence bins
+      P_mask[b.second * B + b.first] = true;
+
+  // lift those to voxel‐level masks
+  const auto& vol  = *scalar_volume;
+  const auto& grad = gradient_volume;
+  size_t Nvox = vol.data.size();
+  std::vector<bool> voxA(Nvox,false), voxP(Nvox,false);
+
+  for (size_t i = 0; i < Nvox; ++i)
+  {
+      int s  = int(vol.data[i]);
+      int g  = int(grad.data[i]);
+      int fg = (B - 1) - g;
+      if (s >= 0 && s < B && fg >= 0 && fg < B)
+      {
+          int idx = fg * B + s;
+          voxA[i] = A_mask[idx];
+          voxP[i] = P_mask[idx];
+      }
+  }
+
+  // compute voxel‐level J_arc (Jaccard), precision, recall
+  size_t countA = 0, countP = 0, intersect = 0, uni = 0;
+  for (size_t i = 0; i < Nvox; ++i)
+  {
+    bool a = voxA[i], p = voxP[i];
+    if (a && p) ++intersect;
+    if (a || p) ++uni;
+    if (a) ++countA;
+    if (p) ++countP;
+  }
+  float J_arc = float(intersect) / float(uni + 1e-6f);
+  float precision = float(intersect) / float(countP + 1e-6f);
+  float recall = float(intersect) / float(countA + 1e-6f);
+
+  // compute the tight axis‐aligned bounding‐box of P_mask in bin‐space
+  int smin = B, smax = -1, gmin = B, gmax = -1;
+  for (int g = 0; g < B; ++g)
+  {
+    for (int s = 0; s < B; ++s)
+    {
+      if (P_mask[g * B + s])
+      {
+        smin = std::min(smin, s);
+        smax = std::max(smax, s);
+        gmin = std::min(gmin, g);
+        gmax = std::max(gmax, g);
+      }
+    }
+  }
+  if (smax < smin || gmax < gmin)
+  {
+    // no bins -> collapse to a single cell
+    smin = smax = gmin = gmax = 0;
+  }
+
+  // measure J_box over voxels
+  size_t countBox = 0, box_and_P = 0;
+  for (size_t i = 0; i < Nvox; ++i)
+  {
+    int s  = int(vol.data[i]);
+    int g  = int(grad.data[i]);
+    int fg = (B - 1) - g;
+    if (s >= 0 && s < B && fg >= 0 && fg < B)
+    {
+      bool inBox = (s >= smin && s <= smax && fg >= gmin && fg <= gmax);
+      bool p = voxP[i];
+      if (inBox) ++countBox;
+      if (inBox && p) ++box_and_P;
+    }
+  }
+  float J_box = float(box_and_P) / float(countBox + countP - box_and_P + 1e-6f);
+
+  std::cout << "[Reprojection] "
+            << "J_arc="      << J_arc
+            << "  J_box="    << J_box
+            << "  Precision="<< precision
+            << "  Recall="   << recall
+            << "  |A|="      << countA
+            << "  |P|="      << countP
+            << "\n";
+
+  if (ui.on_evaluation)
+  {
+      ui.on_evaluation(J_arc, J_box, precision, recall);
+  }
 }
 }//namespace ve
