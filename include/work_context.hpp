@@ -64,5 +64,6 @@ private:
   void apply_custom_color_to_volume(const std::vector<PersistencePair>& pairs, const ImVec4& color);
   void reset_custom_colors();
   void export_persistence_pairs_to_csv(const std::vector<PersistencePair>& scalar_pairs, const std::vector<PersistencePair>& gradient_pairs, const std::string& scalar_filename  = "scalar_pairs.csv", const std::string& gradient_filename = "gradient_pairs.csv") const;
+  std::pair<uint32_t, uint32_t> clamp_and_sort_range(const PersistencePair& p);
 };
 } // namespace ve

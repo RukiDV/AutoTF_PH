@@ -73,10 +73,9 @@ public:
   void set_gradient_volume(const Volume* vol);
   void set_on_tf2d_selected(const std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)>& cb);
   void set_on_reproject(const std::function<void()>& cb);
-  void set_on_persistence_reprojected(const std::function<void(const std::vector<std::pair<int,int>>&)>& cb);
-  void set_persistence_pairs(
-  const std::vector<PersistencePair>* pairs,
-  std::vector<std::vector<size_t>>&& voxel_indices);
+  void set_on_persistence_reprojected(const std::function<void(int featureIdx)> &user_cb);
+  void set_on_persistence_multi_reprojected(const std::function<void(const std::vector<int>& featureIdxs)> &user_cb);
+  void set_persistence_pairs(const std::vector<PersistencePair>* pairs,std::vector<std::vector<size_t>>&& voxel_indices);
   std::vector<std::pair<int,int>> persistence_bins;
   void set_on_evaluation(const std::function<void(float,float,float,float)>& cb);
   float last_J_arc = 0.0f;
@@ -88,6 +87,7 @@ public:
   std::vector<std::pair<int,int>> pd_preview_bins;
   std::vector<ImVec2> persistence_voxels;
   std::function<void(float J_arc, float J_box, float precision, float recall)> on_evaluation;
+  std::vector<ImU32> persistence_bin_colors;
   
   const Volume* get_volume() const { return volume; }
   ImVec4 get_custom_start_color() const { return custom_start_color; }
@@ -176,6 +176,7 @@ private:
   std::function<void(const std::vector<PersistencePair>&, const ImVec4&)> on_color_chosen{};
   std::function<void(const std::vector<std::pair<int,int>>&, const ImVec4&)> on_tf2d_selected;
   std::function<void()> on_reproject;
-  std::function<void(const std::vector<std::pair<int,int>>&)> on_persistence_reprojected;
+  std::function<void(int)> on_persistence_reprojected;
+  std::function<void(const std::vector<int>& featureIdxs)> on_persistence_multi_reprojected;
 };
 } // namespace ve

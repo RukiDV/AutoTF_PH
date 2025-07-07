@@ -182,13 +182,14 @@ void UI::set_on_reproject(const std::function<void()>& cb)
     on_reproject = cb;
 }
 
-void UI::set_on_persistence_reprojected(const std::function<void(const std::vector<std::pair<int,int>>&)> &user_cb)
+void UI::set_on_persistence_reprojected(const std::function<void(int featureIdx)> &user_cb)
 {
-    on_persistence_reprojected = [this, user_cb](const std::vector<std::pair<int,int>>& bins)
-    {
-        persistence_bins = bins;
-        if (user_cb) user_cb(bins);
-    }; 
+   on_persistence_reprojected = user_cb;
+}
+
+void UI::set_on_persistence_multi_reprojected(const std::function<void(const std::vector<int>&)> &user_cb)
+{
+    on_persistence_multi_reprojected = user_cb;
 }
 
 void UI::set_on_evaluation(const std::function<void(float,float,float,float)>& cb) {
@@ -404,19 +405,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 {
                     on_pair_selected(most);
                     // direct B-mask calculation
-                    std::vector<std::pair<int,int>> bins;
-                    bins.reserve(volume->data.size());
-                    // for each voxel of most persistence pair collect all (s,g)
-                    uint32_t b = most.birth, d = most.death;
-                    if (b > d) std::swap(b,d);
-                    for (int g = 0; g < AppState::TF2D_BINS; ++g)
-                    {
-                        for (uint32_t s = b; s <= d; ++s) {
-                            bins.emplace_back(int(s), g);
-                        }
-                    }
-                        if (on_persistence_reprojected)
-                            on_persistence_reprojected(bins);
+                    int feat_idx = int(std::distance(draw_pairs->begin(), it));
+                    if (on_persistence_reprojected)
+                        on_persistence_reprojected(feat_idx);
                 }
                 selected_idx = int(std::distance(draw_pairs->begin(), it));
             }
@@ -754,16 +745,16 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                             if (io.KeyCtrl)
                             {
-                                // toggle and collect multi‐select indices
+                                // toggle multi-selected indices
                                 auto it = std::find(multi_selected_idxs.begin(), multi_selected_idxs.end(), best_i);
                                 if (it == multi_selected_idxs.end())
                                 {
                                     multi_selected_idxs.push_back(best_i);
-                                    selected_custom_colors_per_point.push_back(ImVec4(1,1,1,1));
+                                    // generate a color for this selection
                                     float hue = float(multi_selected_idxs.size()-1) / 6.0f;
                                     float r,g,b;
                                     ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
-                                    multi_selected_cols.push_back(IM_COL32(int(r*255),int(g*255),int(b*255),255));
+                                    multi_selected_cols.push_back(IM_COL32(int(r*255), int(g*255), int(b*255), 255));
                                 }
                                 else
                                 {
@@ -771,36 +762,39 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                     multi_selected_idxs.erase(it);
                                     multi_selected_cols.erase(multi_selected_cols.begin() + idx);
                                 }
-                                // build hits with chosen base opacity
+                                // build highlight hits
                                 for (int k : multi_selected_idxs)
                                     hits.emplace_back((*draw_pairs)[idxs[k]], base_opacity);
+                                last_highlight_hits = hits;
+                                if (!hits.empty() && on_highlight_selected)
+                                    on_highlight_selected(hits, selected_ramp);
+
+                                // fire multi-feature reprojection
+                                if (!multi_selected_idxs.empty() && on_persistence_multi_reprojected)
+                                {
+                                    std::vector<int> featIdxs;
+                                    featIdxs.reserve(multi_selected_idxs.size());
+                                    for (int k : multi_selected_idxs)
+                                        featIdxs.push_back(idxs[k]);
+                                    on_persistence_multi_reprojected(featIdxs);
+                                }
                             }
                             else
                             {
+                                // single selection
                                 multi_selected_idxs.clear();
                                 multi_selected_cols.clear();
                                 hits.emplace_back((*draw_pairs)[idxs[best_i]], base_opacity);
+                                last_highlight_hits = hits;
                                 selected_idx = best_i;
+                                if (on_highlight_selected)
+                                    on_highlight_selected(hits, selected_ramp);
+
+                                // fire single-feature reprojection
+                                int featIdx = idxs[best_i];
+                                if (on_persistence_reprojected)
+                                    on_persistence_reprojected(featIdx);
                             }
-                            last_highlight_hits = hits;
-                            if (!hits.empty() && on_highlight_selected)
-                                on_highlight_selected(hits, selected_ramp);
-                            
-                            if (!hits.empty() && on_persistence_reprojected) 
-                            {
-                                // take only the first hit for reprojecting
-                                const auto& p = hits[0].first;
-                                // calculate all (s,g) for this pair
-                                std::vector<std::pair<int,int>> bins;
-                                bins.reserve(AppState::TF2D_BINS * (p.death - p.birth + 1));
-                                uint32_t b = p.birth, d = p.death;
-                                if (b > d) std::swap(b,d);
-                                for (int g = 0; g < AppState::TF2D_BINS; ++g)
-                                    for (uint32_t s = b; s <= d; ++s)
-                                        bins.emplace_back(int(s), g);
-                                on_persistence_reprojected(bins);
-                            } 
-                                
                         }
                     }
 
@@ -1540,21 +1534,63 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImPlot::PushColormap(ImPlotColormap_Viridis);
             ImPlot::PlotHeatmap("##heatmap", density.data(), AppState::TF2D_BINS, AppState::TF2D_BINS, 0.0, dmax, nullptr, ImPlotPoint(0, 0), ImPlotPoint(AppState::TF2D_BINS, AppState::TF2D_BINS), ImPlotHeatmapFlags_None);
             ImPlot::PopColormap();
-            
-            if (!persistence_bins.empty())
+
+            // show dots
+            /*if (!persistence_bins.empty())
             {
                 auto dl = ImPlot::GetPlotDrawList();
                 int B = AppState::TF2D_BINS;
-                for (auto& bg : persistence_bins)
+                for (size_t i = 0; i < persistence_bins.size(); ++i)
                 {
-                    int s = bg.first;
-                    int g = bg.second;
+                    auto &b = persistence_bins[i];
+                    ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(b.first + 0.5, (B - 1 - b.second) + 0.5));
+                    ImU32 col = (i < persistence_bin_colors.size()) ? persistence_bin_colors[i] : IM_COL32(0,255,0,200);
+                    dl->AddCircleFilled(ImVec2((float)pp.x,(float)pp.y), 3.0f, col);
+                }
+            }*/
 
-                    if (hist[g * B + s] <= 0.0)
-                        continue;
+            // show translucent rectangle
+            if (!persistence_bins.empty() && persistence_bin_colors.size() == persistence_bins.size())
+            {
+                auto dl = ImPlot::GetPlotDrawList();
+                const int B = AppState::TF2D_BINS;
 
-                    ImPlotPoint p = ImPlot::PlotToPixels(ImPlotPoint(s + 0.5f, (AppState::TF2D_BINS - 1 - g) + 0.5f));
-                    dl->AddCircleFilled(ImVec2((float)p.x, (float)p.y), 3.0f, IM_COL32(0,255,0,200));
+                // map: color { s_min, s_max, g_min, g_max }
+                std::unordered_map<ImU32, std::array<int,4>> bounds;
+                bounds.reserve(persistence_bins.size());
+
+                for (size_t i = 0; i < persistence_bins.size(); ++i)
+                {
+                    auto [s, gbin] = persistence_bins[i];
+                    int fg = (B-1) - gbin; // flip so 0→top
+                    ImU32 col = persistence_bin_colors[i];
+
+                    auto it = bounds.find(col);
+                    if (it == bounds.end()) {
+                        // first time for this color: initialize to exactly this point
+                        bounds[col] = { s, s, fg, fg };
+                    }
+                    else
+                    {
+                        // expand the existing min/max
+                        auto &b = it->second;
+                        b[0] = std::min(b[0], s);
+                        b[1] = std::max(b[1], s);
+                        b[2] = std::min(b[2], fg);
+                        b[3] = std::max(b[3], fg);
+                    }
+                }
+
+                // draw translucent rect per color
+                for (auto &kv : bounds)
+                {
+                    ImU32 col = kv.first;
+                    auto &b   = kv.second;
+                    // convert bin‐coords to pixel‐coords
+                    ImPlotPoint p0 = ImPlot::PlotToPixels(ImPlotPoint(double(b[0]),    double(b[2])));
+                    ImPlotPoint p1 = ImPlot::PlotToPixels(ImPlotPoint(double(b[1] + 1), double(b[3] + 1)));
+
+                    dl->AddRectFilled(ImVec2((float)p0.x, (float)p0.y), ImVec2((float)p1.x, (float)p1.y), col);
                 }
             }
 

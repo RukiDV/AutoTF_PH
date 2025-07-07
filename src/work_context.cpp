@@ -142,10 +142,81 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
     reproject_and_compare(); 
   });
 
-  ui.set_on_persistence_reprojected([this](const std::vector<std::pair<int,int>>& bins)
+  ui.set_on_persistence_reprojected([this](int featIdx)
   {
-    last_tf2d_bins = bins;
+    const int B = AppState::TF2D_BINS;
+    ui.persistence_bins.clear();
+    ui.persistence_bin_colors.clear();
+
+    ImU32 green = IM_COL32(0, 255, 0, 200);
+
+    // clamp & sort scalar range
+    auto p = persistence_pairs[featIdx];
+    uint32_t bs = std::min(p.birth,  uint32_t(B-1));
+    uint32_t ds = std::min(p.death,  uint32_t(B-1));
+    if (bs > ds) std::swap(bs, ds);
+    // pad zero-width
+    if (bs == ds)
+    {
+      bs = (bs > 0      ? bs - 1 : 0);
+      ds = (ds < B - 1  ? ds + 1 : B - 1);
+    }
+
+    // scan voxels
+    for (size_t vid = 0; vid < scalar_volume->data.size(); ++vid)
+    {
+      uint32_t s = uint32_t(scalar_volume->data[vid]);
+      if (s < bs || s > ds) continue;
+      uint32_t g = uint32_t(gradient_volume.data[vid]);
+      int fg = int((B - 1) - g); // flip for plotting
+
+      ui.persistence_bins.emplace_back(int(s), fg);
+      ui.persistence_bin_colors.push_back(green);
+    }
+    last_tf2d_bins = ui.persistence_bins;
   });
+
+  ui.set_on_persistence_multi_reprojected([this](const std::vector<int>& featIdxs)
+  {
+    const int B = AppState::TF2D_BINS;
+    ui.persistence_bins.clear();
+    ui.persistence_bin_colors.clear();
+
+    // for each selected feature, pick a distinct hue
+    for (size_t fi_idx = 0; fi_idx < featIdxs.size(); ++fi_idx)
+    {
+      int fi = featIdxs[fi_idx];
+      float hue = float(fi_idx) / float(featIdxs.size());
+      float r,g,b;
+      ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
+      ImVec4 colF(r, g, b, 0.6f);
+      ImU32 colU = ImGui::ColorConvertFloat4ToU32(colF);
+
+      // clamp & sort scalar range
+      auto p = persistence_pairs[fi];
+      uint32_t bs = std::min(p.birth,  uint32_t(B-1));
+      uint32_t ds = std::min(p.death,  uint32_t(B-1));
+      if (bs > ds) std::swap(bs, ds);
+      // pad zero-width
+      if (bs == ds) {
+        bs = (bs > 0      ? bs - 1 : 0);
+        ds = (ds < B - 1  ? ds + 1 : B - 1);
+      }
+
+      // scan voxels
+      for (size_t vid = 0; vid < scalar_volume->data.size(); ++vid)
+      {
+        uint32_t s = uint32_t(scalar_volume->data[vid]);
+        if (s < bs || s > ds) continue;
+        uint32_t g = uint32_t(gradient_volume.data[vid]);
+        int fg = int((B - 1) - g); // flip for plotting
+
+        ui.persistence_bins.emplace_back(int(s), fg);
+        ui.persistence_bin_colors.push_back(colU);
+      }
+    }
+    last_tf2d_bins = ui.persistence_bins;
+});
 
   ui.set_on_evaluation([&](float J_arc, float J_box, float prec, float rec)
   {
@@ -408,7 +479,7 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<std::pair
   }
 }
 
-static std::pair<uint32_t, uint32_t> clamp_and_sort_range(const PersistencePair& p)
+std::pair<uint32_t, uint32_t> WorkContext::clamp_and_sort_range(const PersistencePair& p)
 {
   constexpr uint32_t maxBin = AppState::TF2D_BINS - 1u;
   uint32_t low = (p.birth < AppState::TF2D_BINS ? p.birth : maxBin);
