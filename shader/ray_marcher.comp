@@ -26,6 +26,7 @@ struct PushConstants
 {
     uint display_mode; // 0 = iso, 1 = volume
     float max_gradient;
+    float density_threshold;
 };
 
 layout(push_constant) uniform DisplayMode { PushConstants pc; };
@@ -174,6 +175,11 @@ vec3 ray_march(Ray ray)
             uvec3 p0 = uvec3(floor(vf));
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
+            if (density < pc.density_threshold)
+            {
+                t += step_size;
+                continue;
+            }
 
             // compute scalar index
             uint scalar_idx = uint(density * float(TF2D_BINS - 1u));

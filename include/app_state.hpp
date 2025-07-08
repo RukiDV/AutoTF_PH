@@ -41,6 +41,7 @@ public:
   // mode for iso-surface = 0 or volume highlight = 1 
   int display_mode = 1;
   float max_gradient = 0.0f;
+  float density_threshold = 0.0f;
 
   static constexpr uint32_t TF2D_BINS = 256;
 

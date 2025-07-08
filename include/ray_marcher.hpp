@@ -51,6 +51,7 @@ private:
   {
     uint32_t display_mode = 0;
     float max_gradient = 0.0f;
+    float density_threshold = 0.0f;
   } pc;
 
   void create_pipeline(const AppState& app_state, glm::uvec3 volume_resolution);

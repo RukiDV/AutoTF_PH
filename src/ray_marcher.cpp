@@ -70,8 +70,9 @@ void RayMarcher::compute(vk::CommandBuffer& cb, AppState& app_state, uint32_t re
 {
   cb.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline.get());
   cb.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline.get_layout(), 0, dsh.get_sets()[read_only_buffer_idx], {});
-  pc.display_mode  = app_state.display_mode;
-  pc.max_gradient  = app_state.max_gradient;
+  pc.display_mode = app_state.display_mode;
+  pc.max_gradient = app_state.max_gradient;
+  pc.density_threshold = app_state.density_threshold;
   cb.pushConstants(pipeline.get_layout(), vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstants), &pc);
   cb.dispatch((app_state.get_render_extent().width + 31) / 32, (app_state.get_render_extent().height + 31) / 32, 1);
 }
