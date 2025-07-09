@@ -101,10 +101,43 @@ float trilinear_interpolate(uvec3 volume_pos, vec3 weights)
     return mix(c0, c1, weights.z);
 }
 
+float trilinear_interpolate_grad(uvec3 volume_pos, vec3 weights) 
+{
+    vec3 vol_size = vec3(volume_width, volume_height, volume_depth);
+
+    uint idx000 = volume_pos.z * (volume_width * volume_height) + volume_pos.y * volume_width + volume_pos.x;
+    uint idx100 = idx000 + 1;
+    uint idx010 = idx000 + volume_width;
+    uint idx110 = idx010 + 1;
+    uint idx001 = idx000 + volume_width * volume_height;
+    uint idx101 = idx001 + 1;
+    uint idx011 = idx001 + volume_width;
+    uint idx111 = idx011 + 1;
+
+    float g000 = float(uint(grad_data[idx000])) / 255.0;
+    float g100 = float(uint(grad_data[idx100])) / 255.0;
+    float g010 = float(uint(grad_data[idx010])) / 255.0;
+    float g110 = float(uint(grad_data[idx110])) / 255.0;
+    float g001 = float(uint(grad_data[idx001])) / 255.0;
+    float g101 = float(uint(grad_data[idx101])) / 255.0;
+    float g011 = float(uint(grad_data[idx011])) / 255.0;
+    float g111 = float(uint(grad_data[idx111])) / 255.0;
+
+    float g00 = mix(g000, g100, weights.x);
+    float g10 = mix(g010, g110, weights.x);
+    float g01 = mix(g001, g101, weights.x);
+    float g11 = mix(g011, g111, weights.x);
+
+    float g0  = mix(g00,  g10,  weights.y);
+    float g1  = mix(g01,  g11,  weights.y);
+
+    return mix(g0, g1, weights.z);
+}
+
 vec3 ray_march(Ray ray)
 {
     float t;
-    const float step_size     = 0.001;
+    const float step_size = 0.001;
     const float highlight_step = 0.001;
     const uint  max_iterations = 2000u;
 
@@ -131,21 +164,30 @@ vec3 ray_march(Ray ray)
             uvec3 p0 = uvec3(floor(vf));
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
+            float gradv = trilinear_interpolate_grad(p0, weight);
 
-            // compute scalar index
-            uint scalar_idx = uint(density * float(TF2D_BINS - 1u));
-            scalar_idx = clamp(scalar_idx, 0u, TF2D_BINS - 1u);
+            // lookup coords in 2D TF
+            float fs = density * float(TF2D_BINS - 1u);
+            float fg = gradv * float(TF2D_BINS - 1u);
 
-            // compute gradient index
-            uint raw_grad = uint(grad_data[p0.z * volume_height * volume_width + p0.y * volume_width + p0.x]);
-            float g_norm = float(raw_grad) / pc.max_gradient;
-            uint gradient_idx = uint(g_norm * float(TF2D_BINS - 1u));
-            gradient_idx = clamp(gradient_idx, 0u, TF2D_BINS - 1u);
+            // integer corners
+            int s0 = int(floor(fs));
+            int g0 = int(floor(fg));
+            int s1 = min(s0 + 1, int(TF2D_BINS) - 1);
+            int g1 = min(g0 + 1, int(TF2D_BINS) - 1);
 
-            // 2D lookup
-            uint tf_idx = gradient_idx * TF2D_BINS + scalar_idx;
-            tf_idx = clamp(tf_idx, 0u, transfer_function.length() - 1u);
-            vec4 tfv = transfer_function[tf_idx];
+            // interpolation weights
+            float ws = fs - float(s0);
+            float wg = fg - float(g0);
+
+            // fetch four neighbors from 2D transfer function
+            vec4 t00 = transfer_function[g0 * TF2D_BINS + s0];
+            vec4 t10 = transfer_function[g0 * TF2D_BINS + s1];
+            vec4 t01 = transfer_function[g1 * TF2D_BINS + s0];
+            vec4 t11 = transfer_function[g1 * TF2D_BINS + s1];
+
+            // bilinear mix
+            vec4 tfv = mix(mix(t00, t10, ws), mix(t01, t11, ws), wg);
 
             // early exit on first non-zero alpha
             if (tfv.a > 0.0)
@@ -175,27 +217,36 @@ vec3 ray_march(Ray ray)
             uvec3 p0 = uvec3(floor(vf));
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
+            float gradv = trilinear_interpolate_grad(p0, weight);
+
             if (density < pc.density_threshold)
             {
                 t += step_size;
                 continue;
             }
 
-            // compute scalar index
-            uint scalar_idx = uint(density * float(TF2D_BINS - 1u));
-            scalar_idx = clamp(scalar_idx, 0u, TF2D_BINS-1u);
+            // lookup coords in 2D TF
+            float fs = density * float(TF2D_BINS - 1u);
+            float fg = gradv * float(TF2D_BINS - 1u);
 
-            // compute gradient index 
-            uint raw_grad = uint(grad_data[p0.z * volume_height * volume_width + p0.y * volume_width + p0.x ]);
-            float g_norm = float(raw_grad) / pc.max_gradient;  
-            uint gradient_idx = uint(g_norm * float(TF2D_BINS - 1u));
-            gradient_idx = clamp(gradient_idx, 0u, TF2D_BINS - 1u);
-            
-            // 2D lookup
-            uint tf_idx = gradient_idx * TF2D_BINS + scalar_idx;
-            uint max_tf = transfer_function.length();
-            tf_idx = clamp(tf_idx, 0u, max_tf - 1u);
-            vec4 tfv = transfer_function[tf_idx];
+            // integer corners
+            int s0 = int(floor(fs));
+            int g0 = int(floor(fg));
+            int s1 = min(s0 + 1, int(TF2D_BINS) - 1);
+            int g1 = min(g0 + 1, int(TF2D_BINS) - 1);
+
+            // interpolation weights
+            float ws = fs - float(s0);
+            float wg = fg - float(g0);
+
+            // fetch four neighbors from 2D transfer function
+            vec4 t00 = transfer_function[g0 * TF2D_BINS + s0];
+            vec4 t10 = transfer_function[g0 * TF2D_BINS + s1];
+            vec4 t01 = transfer_function[g1 * TF2D_BINS + s0];
+            vec4 t11 = transfer_function[g1 * TF2D_BINS + s1];
+
+            // bilinear mix
+            vec4 tfv = mix(mix(t00, t10, ws), mix(t01, t11, ws), wg);
 
             // accumulate front-to-back blending
             float alpha = tfv.a * highlight_step;

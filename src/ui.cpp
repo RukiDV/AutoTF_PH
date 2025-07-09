@@ -1479,7 +1479,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             if (brush_active && ImGui::IsMouseDragging(0))
             {
                 brush_points.push_back(mp);
-                ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(brush_color.x, brush_color.y, brush_color.z, brush_color.w * 0.5f));
+                ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(brush_color.x, brush_color.y, brush_color.z, brush_overlay_op));
                 dl->AddCircleFilled(mp, brush_radius_px, col);
                 fireBrush(brush_points);
             }
@@ -1594,7 +1594,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     {
                         ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(sx+0.5, gy+0.5));
                         float alpha = float(hits)/float(max_brush_hits);
-                        float a = 0.1f + alpha*(brush_color.w - 0.1f);
+                        float a = alpha * (brush_overlay_op);
                         ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(brush_color.x, brush_color.y, brush_color.z, a));
                         dl->AddCircleFilled(ImVec2(pp.x, pp.y ), brush_radius_px, col);
                     }
