@@ -29,7 +29,7 @@ public:
   void reload_shaders();
   void draw_frame(AppState& app_state);
   vk::Extent2D recreate_swapchain(bool vsync);
-  void set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume);
+  void set_persistence_pairs(std::vector<PersistencePair> pairs, const Volume& volume);
   void load_persistence_diagram_texture(const std::string &filePath);
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>& pairs);
   void volume_highlight_persistence_pairs(const std::vector<std::pair<PersistencePair, float>>& pairs, int ramp_index);

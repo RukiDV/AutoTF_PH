@@ -340,11 +340,26 @@ int gpu_render(const Volume &volume)
         grad_display_pairs.emplace_back(grad_filtration_values[p.birth], grad_filtration_values[p.death]);
     }
 
+    // build a small normalized-and-filtered list
+    std::vector<PersistencePair> filtered_norm_pairs;
+    filtered_norm_pairs.reserve(raw_pairs.size());
+    for (auto &p : raw_pairs)
+    {
+        uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
+        if (pers < app_state.persistence_threshold)
+            continue; // skip small persistence
+
+        // map birth/death into actual scalar values
+        uint32_t b = filtration_values[p.birth];
+        uint32_t d = filtration_values[p.death];
+        filtered_norm_pairs.emplace_back(b, d);
+    }
+
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    gpu_context.wc.set_persistence_pairs(scalar_display_pairs, volume);
+    gpu_context.wc.set_persistence_pairs(std::move(filtered_norm_pairs), volume);
     auto t1 = std::chrono::high_resolution_clock::now();
     std::cout << CLR_GREEN << "[TIMING] set_persistence_pairs: " << std::chrono::duration<float,ms>(t1 - t0).count() << " ms\n" << CLR_RESET;
 

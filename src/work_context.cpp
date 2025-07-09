@@ -362,9 +362,9 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
   VE_CHECK(vmc.get_present_queue().presentKHR(present_info), "Failed to present image!");
 }
 
-void WorkContext::set_persistence_pairs(const std::vector<PersistencePair>& pairs, const Volume& volume)
+void WorkContext::set_persistence_pairs(std::vector<PersistencePair> pairs, const Volume& volume)
 {
-  persistence_pairs = pairs;
+  persistence_pairs = std::move(pairs);
 
   // compute the global max persistence, later used in isolate/volumeHighlight
   global_max_persistence = 1;
