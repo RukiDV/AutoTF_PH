@@ -57,7 +57,7 @@ public:
   void set_on_pair_selected(const std::function<void(const PersistencePair&)>& callback);
   void set_on_range_applied(std::function<void(const std::vector<PersistencePair>&)> cb);
   void set_on_multi_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
-  void set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb);
+  void set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb);
   void set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp);
   void set_merge_tree(MergeTree* mt);
   void set_on_merge_mode_changed(const std::function<void(int)>& cb);
@@ -144,6 +144,7 @@ private:
   float brush_radius_px    = 6.0f;
   bool brush_active = false;
   ImVec4 brush_color = ImVec4(1,0,1,1);
+  bool brush_just_finished = false;
   std::vector<ImVec2> brush_points;
   int max_brush_hits = 1;
   ImVec4  rect_color = ImVec4(1,0,1,1);
@@ -171,7 +172,7 @@ private:
   std::vector<std::pair<int,int>> painted_bins;
   std::function<void(int)> on_merge_mode_changed;
   std::function<void(const std::vector<PersistencePair>&)> on_multi_selected;
-  std::function<void(const std::vector<PersistencePair>&)> on_brush_selected;
+  std::function<void(const std::vector<PersistencePair>&, const ImVec4&)> on_brush_selected;
   std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp)> on_brush_selected_gradient;
   std::function<void(const std::vector<std::pair<PersistencePair, float>>& hits, int ramp_index)> on_highlight_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_diff_selected;

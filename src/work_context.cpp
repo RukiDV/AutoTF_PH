@@ -20,6 +20,17 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   vcc.add_transfer_buffers(1);
   renderer.setup_storage(app_state);
   gradient_volume = compute_gradient_volume(volume);
+  grads_by_scalar.clear();
+  grads_by_scalar.resize(AppState::TF2D_BINS);
+  for (size_t vid = 0; vid < volume.data.size(); ++vid)
+  {
+    int s = int(volume.data[vid]);
+    int g = int(gradient_volume.data[vid]);
+    if (s >= 0 && s < AppState::TF2D_BINS && g >= 0 && g < AppState::TF2D_BINS)
+    {
+      grads_by_scalar[s].push_back(g);
+    }
+  }
   ray_marcher.setup_storage(app_state, volume, gradient_volume);
   app_state.max_gradient = *std::max_element(gradient_volume.data.cbegin(), gradient_volume.data.cend());
   swapchain.construct(app_state.vsync);
@@ -151,7 +162,6 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
   ui.set_on_persistence_reprojected([this](int featIdx)
   {
-    const int B = AppState::TF2D_BINS;
     ui.persistence_bins.clear();
     ui.persistence_bin_colors.clear();
 
@@ -159,14 +169,14 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
     // clamp & sort scalar range
     auto p = persistence_pairs[featIdx];
-    uint32_t bs = std::min(p.birth,  uint32_t(B-1));
-    uint32_t ds = std::min(p.death,  uint32_t(B-1));
+    uint32_t bs = std::min(p.birth,  uint32_t(AppState::TF2D_BINS - 1));
+    uint32_t ds = std::min(p.death,  uint32_t(AppState::TF2D_BINS - 1));
     if (bs > ds) std::swap(bs, ds);
     // pad zero-width
     if (bs == ds)
     {
       bs = (bs > 0      ? bs - 1 : 0);
-      ds = (ds < B - 1  ? ds + 1 : B - 1);
+      ds = (ds < AppState::TF2D_BINS - 1  ? ds + 1 : AppState::TF2D_BINS - 1);
     }
 
     // scan voxels
@@ -175,7 +185,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
       uint32_t s = uint32_t(scalar_volume->data[vid]);
       if (s < bs || s > ds) continue;
       uint32_t g = uint32_t(gradient_volume.data[vid]);
-      int fg = int((B - 1) - g); // flip for plotting
+      int fg = int((AppState::TF2D_BINS - 1) - g); // flip for plotting
 
       ui.persistence_bins.emplace_back(int(s), fg);
       ui.persistence_bin_colors.push_back(green);
@@ -185,45 +195,83 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
 
   ui.set_on_persistence_multi_reprojected([this](const std::vector<int>& featIdxs)
   {
-    const int B = AppState::TF2D_BINS;
-    ui.persistence_bins.clear();
-    ui.persistence_bin_colors.clear();
+    // to avoid duplicates
+    std::unordered_set<uint32_t> seen;
+    seen.reserve((size_t) AppState::TF2D_BINS * AppState::TF2D_BINS);
 
-    // for each selected feature, pick a distinct hue
-    for (size_t fi_idx = 0; fi_idx < featIdxs.size(); ++fi_idx)
+    for (size_t fi = 0; fi < featIdxs.size(); ++fi)
     {
-      int fi = featIdxs[fi_idx];
-      float hue = float(fi_idx) / float(featIdxs.size());
-      float r,g,b;
+      // pick a distinct hue for feature #fi
+      float hue = float(fi) / float(featIdxs.size());
+      float r, g, b;
       ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
-      ImVec4 colF(r, g, b, 0.6f);
-      ImU32 colU = ImGui::ColorConvertFloat4ToU32(colF);
+      ImVec4 cf(r, g, b, 0.6f);
+      ImU32 colU = ImGui::ColorConvertFloat4ToU32(cf);
 
-      // clamp & sort scalar range
-      auto p = persistence_pairs[fi];
-      uint32_t bs = std::min(p.birth,  uint32_t(B-1));
-      uint32_t ds = std::min(p.death,  uint32_t(B-1));
+      // clamp & pad
+      auto p = persistence_pairs[featIdxs[fi]];
+      int bs = std::clamp<int>(p.birth,  0, AppState::TF2D_BINS - 1);
+      int ds = std::clamp<int>(p.death,  0, AppState::TF2D_BINS - 1);
       if (bs > ds) std::swap(bs, ds);
-      // pad zero-width
-      if (bs == ds) {
-        bs = (bs > 0      ? bs - 1 : 0);
-        ds = (ds < B - 1  ? ds + 1 : B - 1);
+      if (bs == ds)
+      {
+        bs = std::max(bs - 1.0, 0.0);
+        ds = std::min(ds + 1.0, AppState::TF2D_BINS-1.0);
       }
 
-      // scan voxels
-      for (size_t vid = 0; vid < scalar_volume->data.size(); ++vid)
+      // only iterate the scalar‐bins in [bs..ds]
+      for (int s = bs; s <= ds; ++s)
       {
-        uint32_t s = uint32_t(scalar_volume->data[vid]);
-        if (s < bs || s > ds) continue;
-        uint32_t g = uint32_t(gradient_volume.data[vid]);
-        int fg = int((B - 1) - g); // flip for plotting
-
-        ui.persistence_bins.emplace_back(int(s), fg);
-        ui.persistence_bin_colors.push_back(colU);
+        for (int g : grads_by_scalar[s])
+        {
+          int fg = (AppState::TF2D_BINS - 1) - g;
+          uint32_t key = (uint32_t(s) << 16) | uint32_t(fg);
+          if (seen.insert(key).second)
+          {
+            ui.persistence_bins.emplace_back(s, fg);
+            ui.persistence_bin_colors.push_back(colU);
+          }
+        }
       }
     }
     last_tf2d_bins = ui.persistence_bins;
-});
+  });
+
+  ui.set_on_brush_selected([this](const std::vector<PersistencePair>& sel, const ImVec4& brush_col)
+  {
+    if (brush_seen.empty())
+    {
+      ui.persistence_bins.clear();
+      ui.persistence_bin_colors.clear();
+    }
+
+    ImU32 ucol = ImGui::ColorConvertFloat4ToU32(brush_col);
+    for (auto &p : sel)
+    {
+      int bs = std::clamp<int>(p.birth, 0, AppState::TF2D_BINS - 1);
+      int ds = std::clamp<int>(p.death, 0, AppState::TF2D_BINS - 1);
+      if (bs > ds) std::swap(bs, ds);
+      if (bs == ds)
+      {
+        bs = std::max(bs - 1.0, 0.0);
+        ds = std::min(ds + 1.0, AppState::TF2D_BINS - 1.0);
+      }
+
+      for (int s = bs; s <= ds; ++s)
+      {
+        for (int g : grads_by_scalar[s])
+        {
+          int fg = (AppState::TF2D_BINS - 1) - g;
+          uint32_t key = (uint32_t(s) << 16)|uint32_t(fg);
+          if (brush_seen.insert(key).second)
+          {
+            ui.persistence_bins.emplace_back(s,fg);
+            ui.persistence_bin_colors.push_back(ucol);
+          }
+        }
+      }
+    }
+  });
 
   ui.set_on_evaluation([&](float J_arc, float J_box, float prec, float rec)
   {
@@ -743,16 +791,14 @@ void WorkContext::reset_custom_colors()
 
 void WorkContext::reproject_and_compare()
 {
-  const int B = AppState::TF2D_BINS;
-
   // build two independent bin‐masks:
   // A_mask = manual TF2D selection from the UI (last_tf2d_bins)
   // P_mask = persistence reprojection mask stored in ui.persistence_bins
-  std::vector<bool> A_mask(B * B, false), P_mask(B * B, false);
+  std::vector<bool> A_mask(AppState::TF2D_BINS * AppState::TF2D_BINS, false), P_mask(AppState::TF2D_BINS * AppState::TF2D_BINS, false);
   for (auto &b : last_tf2d_bins)
-      A_mask[b.second * B + b.first] = true;
+      A_mask[b.second * AppState::TF2D_BINS + b.first] = true;
   for (auto &b : ui.persistence_bins) // the reprojed persistence bins
-      P_mask[b.second * B + b.first] = true;
+      P_mask[b.second * AppState::TF2D_BINS + b.first] = true;
 
   // lift those to voxel‐level masks
   const auto& vol  = *scalar_volume;
@@ -764,10 +810,10 @@ void WorkContext::reproject_and_compare()
   {
       int s  = int(vol.data[i]);
       int g  = int(grad.data[i]);
-      int fg = (B - 1) - g;
-      if (s >= 0 && s < B && fg >= 0 && fg < B)
+      int fg = (AppState::TF2D_BINS - 1) - g;
+      if (s >= 0 && s < AppState::TF2D_BINS && fg >= 0 && fg < AppState::TF2D_BINS)
       {
-          int idx = fg * B + s;
+          int idx = fg * AppState::TF2D_BINS + s;
           voxA[i] = A_mask[idx];
           voxP[i] = P_mask[idx];
       }
@@ -788,12 +834,16 @@ void WorkContext::reproject_and_compare()
   float recall = float(intersect) / float(countA + 1e-6f);
 
   // compute the tight axis‐aligned bounding‐box of P_mask in bin‐space
-  int smin = B, smax = -1, gmin = B, gmax = -1;
-  for (int g = 0; g < B; ++g)
+  int smin = AppState::TF2D_BINS;
+  int smax = -1;
+  int gmin =  AppState::TF2D_BINS;
+  int gmax = -1;
+
+  for (int g = 0; g < AppState::TF2D_BINS; ++g)
   {
-    for (int s = 0; s < B; ++s)
+    for (int s = 0; s < AppState::TF2D_BINS; ++s)
     {
-      if (P_mask[g * B + s])
+      if (P_mask[g * AppState::TF2D_BINS + s])
       {
         smin = std::min(smin, s);
         smax = std::max(smax, s);
@@ -814,8 +864,8 @@ void WorkContext::reproject_and_compare()
   {
     int s  = int(vol.data[i]);
     int g  = int(grad.data[i]);
-    int fg = (B - 1) - g;
-    if (s >= 0 && s < B && fg >= 0 && fg < B)
+    int fg = (AppState::TF2D_BINS - 1) - g;
+    if (s >= 0 && s < AppState::TF2D_BINS && fg >= 0 && fg < AppState::TF2D_BINS)
     {
       bool inBox = (s >= smin && s <= smax && fg >= gmin && fg <= gmax);
       bool p = voxP[i];

@@ -17,6 +17,7 @@
 #include "gpu_renderer.hpp"
 #include "util/texture_loader.hpp"
 #include "vk/device_timer.hpp"
+#include <unordered_set>
 
 namespace ve {
 
@@ -53,6 +54,8 @@ private:
   uint32_t global_max_persistence = 1;
   const Volume* scalar_volume = nullptr;
   Volume gradient_volume;
+  std::vector<std::vector<int>> grads_by_scalar;
+  std::unordered_set<uint32_t> brush_seen;
   std::vector<glm::vec4> tf_data;
   std::vector<PersistencePair> persistence_pairs;
   std::vector<PersistencePair> raw_persistence_pairs;

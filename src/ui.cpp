@@ -108,7 +108,7 @@ void UI::set_on_multi_selected(const std::function<void(const std::vector<Persis
     on_multi_selected = cb;
 }
 
-void UI::set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&)>& cb)
+void UI::set_on_brush_selected(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb)
 {
     on_brush_selected = cb;
 }
@@ -650,6 +650,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     if (brush_active && ImGui::IsMouseReleased(0))
                     {
                         brush_active = false;
+                        brush_just_finished = true;
                         float dx = brush_end.x - brush_start.x;
                         float dy = brush_end.y - brush_start.y;
                         float raw_r2 = dx*dx + dy*dy;
@@ -690,6 +691,22 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         }
                         if (!brush_sel.empty() && on_highlight_selected)
                             on_highlight_selected(brush_sel, selected_ramp);
+                        
+                        if (!brush_hit_idxs.empty() && on_brush_selected)
+                        {
+                            std::vector<PersistencePair> features;
+                            size_t stroke_i = brush_clusters.size();
+                            float hue = float(stroke_i) / 6.0f;
+                            float r,g,b;
+                            ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, r, g, b);
+                            ImVec4 this_color(r, g, b, 0.6f);
+                            brush_color = this_color;
+                            
+                            features.reserve(brush_hit_idxs.size());
+                            for (int fidx : brush_hit_idxs)
+                                features.push_back((*draw_pairs)[fidx]);
+                            on_brush_selected(features, brush_color);
+                        }
                     }
 
                     if (brush_active)
@@ -703,7 +720,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     }
 
                     // click select & multi-select
-                    if (!brush_active && ImPlot::IsPlotHovered() && ImGui::IsMouseReleased(0))
+                    if (!brush_active && ImPlot::IsPlotHovered() && ImGui::IsMouseReleased(0) && !brush_just_finished)
                     {
                         ImVec2 m = io.MousePos;
                         float best_r2 = marker_size * marker_size;
@@ -778,6 +795,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             }
                         }
                     }
+
+                    if (brush_just_finished)
+                        brush_just_finished = false;
 
                     // draw multi-select overlays
                     for (size_t m = 0; m < multi_selected_idxs.size(); ++m)
@@ -1370,6 +1390,16 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         ImGui::SameLine();
         ImGui::RadioButton("Rects", &tf2d_overlay_mode, 1);
         ImGui::Separator();
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Overlay"))
+        {
+            persistence_bins.clear();
+            persistence_bin_colors.clear();
+            region_defined = false;
+            clear_selection();
+            cache_dirty = true;
+            if (on_clear_custom_colors) on_clear_custom_colors(); 
+        }
 
         if (tf2d_overlay_mode == 0)
         {
@@ -1429,12 +1459,15 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     int fg = (AppState::TF2D_BINS - 1) - gbin;
                     ImU32 base_col = persistence_bin_colors[i];
 
-                    auto &bb = bounds[base_col];
-                    if (bb[0] > bb[1]) {
-                        // set min==max
-                        bb = { s, s, fg, fg };
-                    } else
+                    // only insert the box on first sighting
+                    auto it = bounds.find(base_col);
+                    if (it == bounds.end())
                     {
+                        bounds.emplace(base_col, std::array<int,4>{ s, s, fg, fg });
+                    }
+                    else
+                    {
+                        auto &bb = it->second;
                         bb[0] = std::min(bb[0], s);
                         bb[1] = std::max(bb[1], s);
                         bb[2] = std::min(bb[2], fg);
@@ -1452,7 +1485,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     uint8_t r =  base_col & 0xFF;
                     uint8_t g = (base_col >> 8) & 0xFF;
                     uint8_t b = (base_col >> 16) & 0xFF;
-                    uint8_t a  = uint8_t(tf2d_rect_opacity * 255.0f);
+                    uint8_t a = uint8_t(tf2d_rect_opacity * 255.0f);
 
                     ImU32 col = IM_COL32(r, g, b, a);
 
