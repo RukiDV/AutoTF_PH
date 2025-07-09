@@ -443,9 +443,12 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImGui::SliderFloat("Density Cutoff", &app_state.density_threshold, 0.0f, 1.0f, "%.2f");
             ImGui::Checkbox("Show Dots", &show_dots);
             ImGui::SliderInt("Max Points", &max_points_to_show, 1, N);
-            ImGui::SliderFloat2("Birth Range", birth_range, 0.0f, 255.0f, "%.0f");
-            ImGui::SliderFloat2("Death Range", death_range, 0.0f, 255.0f, "%.0f");
-            ImGui::SliderFloat2("Persistence Range", persistence_range, 0.0f, 255.0f, "%.0f");
+            ImGui::PushID("range_filters");
+            bool range_changed = false;
+            range_changed |= ImGui::SliderFloat2("Birth Range", birth_range, 0.0f, 255.0f, "%.0f");
+            range_changed |= ImGui::SliderFloat2("Death Range", death_range, 0.0f, 255.0f, "%.0f");
+            range_changed |= ImGui::SliderFloat2("Persistence Range", persistence_range, 0.0f, 255.0f, "%.0f");
+            ImGui::PopID();
             ImGui::SliderFloat("Zoom", &diagram_zoom, 0.1f, 3.0f, "%.2f");
             ImGui::SliderFloat("Marker Size", &marker_size, 1.0f, 20.0f, "%.1f");
             ImGui::SliderFloat("Brush Size Multiplier", &brush_outer_mult, 0.1f, 2.0f, "%.2f");
@@ -500,24 +503,26 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     }
                 }
 
-                if (ImGui::Button("Apply Range Filter"))
+                if (range_changed)
                 {
                     range_active = true;
+
                     std::vector<PersistencePair> filtered;
                     filtered.reserve(idxs.size());
                     for (int i : idxs)
                         filtered.push_back((*draw_pairs)[i]);
-                    
+
+                    // build highlight‐list
                     std::vector<std::pair<PersistencePair,float>> hits;
                     hits.reserve(filtered.size());
                     for (auto &p : filtered)
-                        hits.emplace_back(p, 1.0f);
+                        hits.emplace_back(p, highlight_opacity);
 
-                    last_highlight_hits = hits;
                     if (!hits.empty() && on_highlight_selected)
                         on_highlight_selected(hits, selected_ramp); 
+                    if (on_range_applied)
+                        on_range_applied(filtered);
                 }
-                ImGui::SameLine();
 
                 // draw dots
                 const float pad = 10.0f * diagram_zoom;
@@ -568,7 +573,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         {
                             case RAMP_HSV:
                             {
-                                float hue = (1.0f - tval) * 0.66f;
+                                float hue = (1.0f - tval) * (240.0f / 360.0f);
                                 ImGui::ColorConvertHSVtoRGB(hue, 1.0f, 1.0f, cr, cg, cb);
                                 break;
                             }
@@ -677,7 +682,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             // add cluster
                             brush_clusters.push_back(brush_hit_idxs);
                             // pick an outline color
-                            float hue = float(brush_clusters.size()-1) / 6.0f;
+                            float hue = float(brush_clusters.size()-1) / 6.0f * (240.0f / 360.0f);
                             float r, g, b;
                             ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
                             brush_cluster_outlines.push_back(IM_COL32(int(r*255),int(g*255),int(b*255),255));
@@ -727,7 +732,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 {
                                     multi_selected_idxs.push_back(best_i);
                                     // generate a color for this selection
-                                    float hue = float(multi_selected_idxs.size()-1) / 6.0f;
+                                    float hue = float(multi_selected_idxs.size()-1) / 6.0f * (240.0f / 360.0f);
                                     float r,g,b;
                                     ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
                                     multi_selected_cols.push_back(IM_COL32(int(r*255), int(g*255), int(b*255), 255));
@@ -1142,7 +1147,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                     col = ImVec4(1.0f, 0.4f, 0.7f, 1.0f); // pink
                                 else
                                 {
-                                    float hue = (1.0f - (lengths[rank].first / (maxP>0?maxP:1.0f))) * 0.66f;
+                                    float hue = (1.0f - (lengths[rank].first / (maxP > 0 ? maxP : 1.0f))) * (240.0f/360.0f);
                                     float r,g,b;
                                     ImGui::ColorConvertHSVtoRGB(hue,1,1,r,g,b);
                                     col = ImVec4(r,g,b,1.0f);
@@ -1322,10 +1327,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         ImPlot::SetNextAxisLimits(ImAxis_X1, 0, (double)AppState::TF2D_BINS, ImPlotCond_Always);
         ImPlot::SetNextAxisLimits(ImAxis_Y1, 0, (double)plot_max_gradient, ImPlotCond_Always);
 
-        ImGui::Checkbox("Brush Mode", &brush_mode);
-        if (brush_mode)
+        ImGui::Checkbox("Brush Mode", &show_brush_overlay);
+        if (show_brush_overlay)
         {
-            ImGui::SameLine();
+            ImGui::ColorEdit4("Brush Color", (float*)&brush_color, ImGuiColorEditFlags_NoInputs);
+            ImGui::Separator();
+            ImGui::SliderFloat("Brush Opacity", &brush_overlay_op, 0.0f, 1.0f, "%.2f");
+            ImGui::Separator();
             ImGui::SliderFloat("Radius (px)", &brush_radius_px, 2.0f, 100.0f);
             ImGui::Separator();
             if (ImGui::Button("Clear Brush"))
@@ -1333,18 +1341,45 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 brush_points.clear();
                 std::fill(brush_hits.begin(), brush_hits.end(), 0);
                 max_brush_hits = 1;
+                if (on_clear_custom_colors) on_clear_custom_colors();
             }
-            ImGui::SameLine();
-            ImGui::ColorEdit4("Brush Color", (float*)&brush_color, ImGuiColorEditFlags_NoInputs);
         }
+        ImGui::Checkbox("Rectangle Mode", &show_rect_overlay);
+        if (show_rect_overlay)
+        {
+            ImGui::ColorEdit4("Rect Color", (float*)&rect_color, ImGuiColorEditFlags_NoInputs);
+            ImGui::Separator();
+            ImGui::SliderFloat("Rect Opacity", &rect_overlay_op, 0.0f, 1.0f, "%.2f");
+            ImGui::Separator();
+            if (ImGui::Button("Clear Rect"))
+            {
+                region_defined = false;
+                if (on_clear_custom_colors) on_clear_custom_colors();
+            }
+        }
+        ImGui::Separator();
 
         if (ImGui::Button("Evaluate Reprojection"))
         {
             if (on_reproject) on_reproject();
         }
 
+        ImGui::Text("Overlay Mode:");  
         ImGui::SameLine();
-        ImGui::ColorEdit4("Rect Color", (float*)&rect_color, ImGuiColorEditFlags_NoInputs);
+        ImGui::RadioButton("Dots", &tf2d_overlay_mode, 0);  
+        ImGui::SameLine();
+        ImGui::RadioButton("Rects", &tf2d_overlay_mode, 1);
+        ImGui::Separator();
+
+        if (tf2d_overlay_mode == 0)
+        {
+            ImGui::SliderFloat("Dot Opacity", &tf2d_dot_opacity, 0.0f, 1.0f, "%.2f");
+        }
+        else
+        {
+            ImGui::SliderFloat("Rect Opacity", &tf2d_rect_opacity, 0.0f, 1.0f, "%.2f");
+        }
+        ImGui::Separator();
         
         if (ImPlot::BeginPlot("TF2D Heatmap", ImVec2(-1,300)))
         {
@@ -1357,60 +1392,72 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImPlot::PlotHeatmap("##heatmap", density.data(), AppState::TF2D_BINS, AppState::TF2D_BINS, 0.0, dmax, nullptr, ImPlotPoint(0, 0), ImPlotPoint(AppState::TF2D_BINS, AppState::TF2D_BINS), ImPlotHeatmapFlags_None);
             ImPlot::PopColormap();
 
-            // show dots
-            /*if (!persistence_bins.empty())
+            auto dl = ImPlot::GetPlotDrawList();
+
+            // dots mode
+            if (tf2d_overlay_mode == 0) 
             {
-                auto dl = ImPlot::GetPlotDrawList();
-                int B = AppState::TF2D_BINS;
                 for (size_t i = 0; i < persistence_bins.size(); ++i)
                 {
-                    auto &b = persistence_bins[i];
-                    ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(b.first + 0.5, (B - 1 - b.second) + 0.5));
-                    ImU32 col = (i < persistence_bin_colors.size()) ? persistence_bin_colors[i] : IM_COL32(0,255,0,200);
-                    dl->AddCircleFilled(ImVec2((float)pp.x,(float)pp.y), 3.0f, col);
+                    auto &bin = persistence_bins[i];
+                    // compute screen position
+                    ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(bin.first + 0.5, (AppState::TF2D_BINS - 1 - bin.second) + 0.5));
+
+                    // unpack the stored RGB
+                    ImU32 base_col = (i < persistence_bin_colors.size()) ? persistence_bin_colors[i] : IM_COL32(0,255,0,200);
+                    uint8_t r =  base_col & 0xFF;
+                    uint8_t g = (base_col >> 8) & 0xFF;
+                    uint8_t b = (base_col >> 16) & 0xFF;
+
+                    // build a new color with *slider* alpha
+                    uint8_t a = uint8_t(tf2d_dot_opacity * 255.0f);
+                    ImU32 col = IM_COL32(r, g, b, a);
+
+                    // draw each circle with its own opacity
+                    dl->AddCircleFilled(ImVec2((float)pp.x, (float)pp.y), 2.0f, col);
                 }
-            }*/
-
-            // show translucent rectangle
-            if (!persistence_bins.empty() && persistence_bin_colors.size() == persistence_bins.size())
+            }
+            else
             {
-                auto dl = ImPlot::GetPlotDrawList();
-                const int B = AppState::TF2D_BINS;
-
-                // map: color { s_min, s_max, g_min, g_max }
-                std::unordered_map<ImU32, std::array<int,4>> bounds;
+                // draw translucent rectangles
+                std::unordered_map<ImU32,std::array<int,4>> bounds;
                 bounds.reserve(persistence_bins.size());
 
                 for (size_t i = 0; i < persistence_bins.size(); ++i)
                 {
                     auto [s, gbin] = persistence_bins[i];
-                    int fg = (B-1) - gbin; // flip so 0→top
-                    ImU32 col = persistence_bin_colors[i];
+                    int fg = (AppState::TF2D_BINS - 1) - gbin;
+                    ImU32 base_col = persistence_bin_colors[i];
 
-                    auto it = bounds.find(col);
-                    if (it == bounds.end()) {
-                        // first time for this color: initialize to exactly this point
-                        bounds[col] = { s, s, fg, fg };
-                    }
-                    else
+                    auto &bb = bounds[base_col];
+                    if (bb[0] > bb[1]) {
+                        // set min==max
+                        bb = { s, s, fg, fg };
+                    } else
                     {
-                        // expand the existing min/max
-                        auto &b = it->second;
-                        b[0] = std::min(b[0], s);
-                        b[1] = std::max(b[1], s);
-                        b[2] = std::min(b[2], fg);
-                        b[3] = std::max(b[3], fg);
+                        bb[0] = std::min(bb[0], s);
+                        bb[1] = std::max(bb[1], s);
+                        bb[2] = std::min(bb[2], fg);
+                        bb[3] = std::max(bb[3], fg);
                     }
                 }
 
-                // draw translucent rect per color
+                // draw each rect with chosen opacity
                 for (auto &kv : bounds)
                 {
-                    ImU32 col = kv.first;
-                    auto &b   = kv.second;
-                    // convert bin‐coords to pixel‐coords
-                    ImPlotPoint p0 = ImPlot::PlotToPixels(ImPlotPoint(double(b[0]),    double(b[2])));
-                    ImPlotPoint p1 = ImPlot::PlotToPixels(ImPlotPoint(double(b[1] + 1), double(b[3] + 1)));
+                    ImU32 base_col = kv.first;
+                    auto &bin = kv.second;
+
+                    // unpack RGB
+                    uint8_t r =  base_col & 0xFF;
+                    uint8_t g = (base_col >> 8) & 0xFF;
+                    uint8_t b = (base_col >> 16) & 0xFF;
+                    uint8_t a  = uint8_t(tf2d_rect_opacity * 255.0f);
+
+                    ImU32 col = IM_COL32(r, g, b, a);
+
+                    ImPlotPoint p0 = ImPlot::PlotToPixels(ImPlotPoint(double(bin[0]), double(bin[2])));
+                    ImPlotPoint p1 = ImPlot::PlotToPixels(ImPlotPoint(double(bin[1] + 1), double(bin[3] + 1)));
 
                     dl->AddRectFilled(ImVec2((float)p0.x, (float)p0.y), ImVec2((float)p1.x, (float)p1.y), col);
                 }
@@ -1421,7 +1468,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImVec2 mp = io.MousePos;
 
             // brush mode
-            if (brush_mode && ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0))
+            if (show_brush_overlay && ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(0))
             {
                 brush_active = true;
                 brush_points.clear();
@@ -1432,7 +1479,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             if (brush_active && ImGui::IsMouseDragging(0))
             {
                 brush_points.push_back(mp);
-                auto dl = ImPlot::GetPlotDrawList();
                 ImU32 col = ImGui::ColorConvertFloat4ToU32(ImVec4(brush_color.x, brush_color.y, brush_color.z, brush_color.w * 0.5f));
                 dl->AddCircleFilled(mp, brush_radius_px, col);
                 fireBrush(brush_points);
@@ -1458,7 +1504,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     tf2d_end = mp;
                 if (tf2d_drag)
                 {
-                    auto dl = ImPlot::GetPlotDrawList();
                     dl->AddRect(tf2d_start, tf2d_end, rect_final_col, 0,0,2.0f);
                     fireRegion(tf2d_start, tf2d_end);
                     //if (on_reproject) on_reproject();
@@ -1531,15 +1576,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             }
 
             // draw final rectangle
-            if (region_defined)
+            if (show_rect_overlay && region_defined)
             {
-                auto dl = ImPlot::GetPlotDrawList();
                  ImU32 u32 = ImGui::ColorConvertFloat4ToU32(rect_color);
                 dl->AddRect(region_start, region_end, rect_final_col, 0, 0, 2.5f);
             }
 
             // draw brush points
-            auto dl = ImPlot::GetPlotDrawList();
             int bins = AppState::TF2D_BINS;
             for (int gy = 0; gy < bins; ++gy)
             {

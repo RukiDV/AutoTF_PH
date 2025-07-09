@@ -31,16 +31,7 @@ void TransferFunction::update(const std::vector<PersistencePair>& pairs, const V
   float span = float(vol_max > vol_min ? (vol_max - vol_min) : 1);
 
   tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
-  for (int s = 0; s < AppState::TF2D_BINS; ++s)
-  {
-    float normalized = float(s) / float(AppState::TF2D_BINS - 1);
-    glm::vec4 base_col(normalized, normalized, normalized, 1.0f);
-    for (int g = 0; g < AppState::TF2D_BINS; ++g)
-    {
-        tf_data[g * AppState::TF2D_BINS + s] = base_col;
-    }
-  }
-
+ 
   // find max persistence in parallel
   uint32_t max_pers = 1;
   #pragma omp parallel for reduction(max: max_pers)

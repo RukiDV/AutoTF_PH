@@ -137,18 +137,23 @@ private:
   bool region_resize = false;
   int resize_corner = -1;
   float corner_r = 6.0f;
-  bool brush_mode = false;
+  bool show_brush_overlay = false;
+  bool show_rect_overlay = false;
+  float brush_overlay_op = 1.0f;
+  float rect_overlay_op = 0.5f;
   float brush_radius_px    = 6.0f;
   bool brush_active = false;
-  ImVec4 brush_color = ImVec4(0,1,1,1);
+  ImVec4 brush_color = ImVec4(1,0,1,1);
   std::vector<ImVec2> brush_points;
   int max_brush_hits = 1;
-  ImVec4  rect_color = ImVec4(1,1,0,1);
-  std::vector<std::vector<size_t>> persistence_voxel_indices;
-
+  ImVec4  rect_color = ImVec4(1,0,1,1);
   bool initial_feature_highlighted = false;
   int pd_mode = 0;
+  int tf2d_overlay_mode = 0; // 0=dots, 1=rects
+  float tf2d_dot_opacity = 1.0f;
+  float tf2d_rect_opacity = 0.4f; 
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
+  std::vector<std::vector<size_t>> persistence_voxel_indices;
   std::vector<double> xs, ys;
   std::vector<float > pers;
   std::vector<ImVec2> dot_pos;

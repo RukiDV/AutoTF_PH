@@ -90,6 +90,13 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
       ui.set_persistence_pairs(nullptr);
       ui.set_gradient_persistence_pairs(&gradient_persistence_pairs);
 
+      global_max_persistence = 1;
+      for (auto &p : gradient_persistence_pairs)
+      {
+        uint32_t pers = (p.death > p.birth ? (p.death - p.birth) : 0);
+        global_max_persistence = std::max(global_max_persistence, pers);
+      }
+
       if (&gradient_volume && !gradient_persistence_pairs.empty())
       {
         transfer_function.update(gradient_persistence_pairs, gradient_volume, tf_data);
@@ -410,7 +417,7 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<std::pair
     {
       case UI::RAMP_HSV:
       {
-        float hue = (1.0f - tColor) * 0.66f;
+        float hue = (1.0f - tColor) * (240.0f/360.0f);
         ImGui::ColorConvertHSVtoRGB(hue, 1.0, 1.0, rgb.x, rgb.y, rgb.z);
       } break;
       case UI::RAMP_VIRIDIS:
@@ -435,7 +442,7 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<std::pair
       } break;
       default:
       {
-        float hue = (1.0f - tColor) * 0.66f;
+        float hue = (1.0f - tColor) * (240.0f/360.0f);
         ImGui::ColorConvertHSVtoRGB(hue, 1.0, 1.0, rgb.x, rgb.y, rgb.z);
       }
     }
