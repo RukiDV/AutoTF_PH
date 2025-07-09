@@ -200,50 +200,19 @@ std::vector<PersistencePair> get_persistence_pairs_for_level(MergeTree& merge_tr
     return selectedPairs;
 }
 
-void debug_print_merge_tree(const MergeTree &merge_tree) 
-{
-    std::cout << "=== Merge Tree Debug Info ===" << std::endl;
-    int max_depth = 0;
-    const auto &nodes = merge_tree.get_all_nodes();
-    for (const auto &pair : nodes) {
-        const auto *node = pair.second;
-        std::cout << "Node " << pair.first << ": birth=" << node->birth << ", death=" << node->death << ", depth=" << node->depth;
-        if (node->parent)
-            std::cout << ", parent=" << node->parent->id;
-        else
-            std::cout << " (root)";
-        std::cout << std::endl;
-        if (node->depth > max_depth)
-            max_depth = node->depth;
-    }
-    std::cout << "Maximum merge tree depth: " << max_depth << std::endl;
-}
-
-void debug_print_nodes_at_level(const MergeTree &merge_tree, int targetLevel) 
-{
-    std::vector<MergeTreeNode *> levelNodes;
-    const auto &nodes = merge_tree.get_all_nodes();
-    for (const auto &pair : nodes) {
-        MergeTreeNode *node = pair.second;
-        if (node->parent == nullptr) {
-            get_nodes_at_level(node, 0, targetLevel, levelNodes);
-        }
-    }
-    std::cout << "Nodes at target level " << targetLevel << ":" << std::endl;
-    for (const auto *node : levelNodes) {
-        std::cout << "  Node " << node->id << " (birth=" << node->birth << ", death=" << node->death << ", depth=" << node->depth << ")" << std::endl;
-    }
-}
-
 int gpu_render(const Volume &volume) 
 {
     AppState app_state;
+    Timer<float> timer;
+    using ms = std::milli;
 
     // decide on a volume‐specific cache path, hash the dimensions
     std::string cache_base = "cache/";
     std::string vol_id = std::to_string(volume.resolution.x) + "x" + std::to_string(volume.resolution.y) + "x" + std::to_string(volume.resolution.z);
+
+    // load or compute raw persistence pairs
     std::string pairs_cache = cache_base + vol_id + "_pairs.bin";
-    std::string filt_cache  = cache_base + vol_id + "_filts.bin";
+    std::string filt_cache = cache_base + vol_id + "_filts.bin";
     std::vector<PersistencePair> raw_pairs;
     std::vector<int> filtration_values;
 
@@ -286,6 +255,7 @@ int gpu_render(const Volume &volume)
       }
       std::cout << "Computed and cached " << raw_pairs.size() << " persistence pairs.\n";
     }
+    std::cout << CLR_GREEN << "[TIMING] persistence‐pairs load/compute: " << timer.restart<ms>() << " ms\n" << CLR_RESET;
 
     // gradient
     std::string grad_pairs_cache = cache_base + vol_id + "_grad_pairs.bin";
@@ -325,19 +295,9 @@ int gpu_render(const Volume &volume)
         }
         std::cout << "Computed and cached " << raw_grad_pairs.size() << " gradient pairs.\n";
     }
+    std::cout << CLR_GREEN << "[TIMING] gradient‐pairs load/compute: " << timer.restart<ms>() << " ms\n" << CLR_RESET;
 
-    MergeTree merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
-    exportFilteredMergeTreeEdges(merge_tree, "merge_tree_edges_filtered.txt", 3, 10);
-    std::vector<PersistencePair> defaultPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
-
-    std::vector<PersistencePair> normalizedPairs;
-    for (const PersistencePair &p : defaultPairs)
-    {
-        uint32_t normBirth = filtration_values[p.birth];
-        uint32_t normDeath = filtration_values[p.death];
-        normalizedPairs.push_back(PersistencePair(normBirth, normDeath));
-    }
-
+    // dump raw pairs for Python script
     std::ofstream outfile("volume_data/persistence_pairs.txt");
     if (outfile.is_open())
     {
@@ -362,30 +322,41 @@ int gpu_render(const Volume &volume)
         std::cout << "Persistence diagram generated successfully." << std::endl;
     }
 
-    std::vector<PersistencePair> displayPairs;
-    displayPairs.reserve(raw_pairs.size());
+    std::cout << CLR_GREEN << "[TIMING] file+Python script: " << timer.restart<ms>() << " ms\n" << CLR_RESET;
+
+    std::vector<PersistencePair> scalar_display_pairs;
+    scalar_display_pairs.reserve(raw_pairs.size());
     for (auto &p : raw_pairs)
     {
         // look up the true scalar
         uint32_t b = filtration_values[p.birth];
         uint32_t d = filtration_values[p.death];
-        displayPairs.emplace_back(b, d);
+        scalar_display_pairs.emplace_back(b, d);
     }
 
-    std::vector<PersistencePair> gradDisplayPairs;
+    std::vector<PersistencePair> grad_display_pairs;
     for (auto &p : raw_grad_pairs)
     {
-        gradDisplayPairs.emplace_back(grad_filtration_values[p.birth], grad_filtration_values[p.death]);
+        grad_display_pairs.emplace_back(grad_filtration_values[p.birth], grad_filtration_values[p.death]);
     }
+
     EventHandler eh;
     GPUContext gpu_context(app_state, volume);
 
-    gpu_context.wc.set_persistence_pairs(displayPairs, volume);
-    gpu_context.wc.set_gradient_persistence_pairs(gradDisplayPairs);
+    auto t0 = std::chrono::high_resolution_clock::now();
+    gpu_context.wc.set_persistence_pairs(scalar_display_pairs, volume);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    std::cout << CLR_GREEN << "[TIMING] set_persistence_pairs: " << std::chrono::duration<float,ms>(t1 - t0).count() << " ms\n" << CLR_RESET;
 
+    auto t2 = std::chrono::high_resolution_clock::now();
+    gpu_context.wc.set_gradient_persistence_pairs(grad_display_pairs);
+    auto t3 = std::chrono::high_resolution_clock::now();
+    std::cout << CLR_GREEN << "[TIMING] set_gradient_persistence_pairs: " << std::chrono::duration<float,ms>(t3 - t2).count() << " ms\n" << CLR_RESET;
+ 
     bool quit = false;
     Timer rendering_timer;
     SDL_Event e;
+
     while (!quit)
     {
         dispatch_pressed_keys(gpu_context, eh, app_state);
@@ -395,25 +366,8 @@ int gpu_render(const Volume &volume)
         {
             raw_pairs = calculate_persistence_pairs(volume, filtration_values, app_state.filtration_mode);
             std::cout << "Filtration mode updated. New raw persistence pairs: " << raw_pairs.size() << std::endl;
-            merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
+            //merge_tree = build_merge_tree_with_tolerance(raw_pairs, 5);
             app_state.apply_filtration_mode = false;
-        }
-
-        if (app_state.apply_persistence_threshold)
-        {
-            std::vector<PersistencePair> currentFilteredPairs = threshold_cut(raw_pairs, app_state.persistence_threshold);
-            std::cout << "Persistence threshold updated to " << app_state.persistence_threshold << ", filtered pairs: " << currentFilteredPairs.size() << std::endl;
-            merge_tree = build_merge_tree_with_tolerance(currentFilteredPairs, 2);
-            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
-            gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
-            app_state.apply_persistence_threshold = false;
-        }
-
-        if (app_state.apply_target_level)
-        {
-            std::vector<PersistencePair> selectedPairs = get_persistence_pairs_for_level(merge_tree, app_state.target_level);
-            gpu_context.wc.set_persistence_pairs(selectedPairs, volume);
-            app_state.apply_target_level = false;
         }
         try
         {

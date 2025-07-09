@@ -146,6 +146,8 @@ private:
   ImVec4  rect_color = ImVec4(1,1,0,1);
   std::vector<std::vector<size_t>> persistence_voxel_indices;
 
+  bool initial_feature_highlighted = false;
+  int pd_mode = 0;
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<double> xs, ys;
   std::vector<float > pers;

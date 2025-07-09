@@ -9,7 +9,6 @@ Window::Window(const uint32_t width, const uint32_t height)
 {
   SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
   window = SDL_CreateWindow("AutoTF_PH", width, height, SDL_WINDOW_VULKAN);
-  std::cout << height << "," << width << std::endl;
 }
 
 void Window::destruct()

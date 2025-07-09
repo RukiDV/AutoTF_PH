@@ -236,29 +236,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     }
     ImGui::Separator();
 
-    // persistent feature selection controls
-    if (ImGui::CollapsingHeader("Persistent Feature Selection", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        ImGui::SliderInt("Persistence Threshold", &app_state.persistence_threshold, 110000, 110300);
-        if (ImGui::Button("Apply Persistence Threshold"))
-        {
-            app_state.apply_persistence_threshold = true;
-        }
-        ImGui::SameLine();
-        ImGui::Text("Current Threshold: %d", app_state.persistence_threshold);
-
-        ImGui::SliderInt("Target Level", &app_state.target_level, 0, 300);
-        if (ImGui::Button("Apply Target Level"))
-        {
-            app_state.apply_target_level = true;
-            if (merge_tree)
-                merge_tree->set_target_level(app_state.target_level);
-        }
-        ImGui::SameLine();
-        ImGui::Text("Current Level: %d", app_state.target_level);
-    }
-    ImGui::Separator();
-
     // filtration mode controls
     if (ImGui::CollapsingHeader("Filtration Mode", ImGuiTreeNodeFlags_DefaultOpen))
     {
@@ -288,14 +265,13 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
     {
         // pick overall visualization
         static int viewType = 0;
-        const char* viewNames[] = { "Persistence", "Barcode", "Merge Tree" };
+        const char* viewNames[] = { "Persistence", "Barcode"};
         ImGui::Combo("Visualization", &viewType, viewNames, IM_ARRAYSIZE(viewNames));
         ImGui::Separator();
 
         // pick scalar vs gradient persistence
         ImGui::Text("Persistence Pairs Mode:"); ImGui::SameLine();
         bool pd_changed = false;
-        static int pd_mode = 0;
         if (ImGui::RadioButton("Scalar persistence", &pd_mode, 0)) pd_changed = true;
         ImGui::SameLine();
         if (ImGui::RadioButton("Gradient persistence", &pd_mode, 1)) pd_changed = true;
@@ -389,7 +365,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         ImGui::Separator();
 
         // automatic initial highlight of most persistent feature
-        static bool initial_feature_highlighted = false;
         if (!initial_feature_highlighted && draw_pairs && !draw_pairs->empty())
         {
             // find the pair with max persistence (death - birth)
@@ -465,6 +440,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 brush_inner_ratio = 0.7f;  
             }
             ImGui::SameLine();
+            ImGui::SliderFloat("Density Cutoff", &app_state.density_threshold, 0.0f, 1.0f, "%.2f");
             ImGui::Checkbox("Show Dots", &show_dots);
             ImGui::SliderInt("Max Points", &max_points_to_show, 1, N);
             ImGui::SliderFloat2("Birth Range", birth_range, 0.0f, 255.0f, "%.0f");
@@ -1180,160 +1156,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     ImPlot::EndPlot();
                 }
             }
-        }
-
-        // merge tree view
-        else if (viewType == 2)
-        {
-            if (!merge_tree)
-            {
-                ImGui::Text("No merge tree loaded");
-                return;
-            }
-
-            // scalar vs gradient toggle
-            static int last_mt_mode = -1;
-            static int mt_mode = 0; // 0=scalar, 1=gradient
-            ImGui::Text("Merge Tree Source:");
-            ImGui::SameLine();
-            ImGui::RadioButton("Scalar",   &mt_mode, 0);
-            ImGui::SameLine();
-            ImGui::RadioButton("Gradient", &mt_mode, 1);
-            ImGui::Separator();
-            
-            if (mt_mode != last_mt_mode)
-            {
-                last_mt_mode = mt_mode;
-                mt_dirty = true;
-                if (on_merge_mode_changed)
-                    on_merge_mode_changed(mt_mode);
-            }
-
-            // depth and persistence controls
-            ImGui::TextColored(ImVec4(0.8f,0.8f,0.2f,1.0f), "Merge Tree Controls");
-            static int depth_level = app_state.target_level;
-            ImGui::SliderInt("Target Depth", &depth_level, 0, 10);
-            if (ImGui::Button("Apply Depth"))
-            {
-                app_state.target_level = depth_level;
-                merge_tree->set_target_level(depth_level);
-                app_state.apply_target_level = true;
-                mt_dirty = true;
-            }
-            ImGui::SameLine(); ImGui::Text("Current: %d", app_state.target_level);
-
-            static int persist_thr = app_state.persistence_threshold;
-            ImGui::SliderInt("Persistence Thr", &persist_thr, 0, 255);
-            if (ImGui::Button("Apply Thr"))
-            {
-                app_state.persistence_threshold = persist_thr;
-                merge_tree->set_persistence_threshold(persist_thr);
-                app_state.apply_persistence_threshold = true;
-                mt_dirty = true;
-
-                std::vector<PersistencePair> survivors;
-                for (auto &p : *persistence_pairs)
-                {
-                    if ((int)p.death - (int)p.birth >= persist_thr)
-                        survivors.push_back(p);
-                }
-
-                if (on_range_applied)
-                    on_range_applied(survivors);
-            }
-            ImGui::SameLine(); ImGui::Text("Current: %d", app_state.persistence_threshold);
-
-            ImGui::Separator();
-
-            // zoom & pan
-            static float zoom = 1.0f;
-            static ImVec2 pan{0,0};
-            ImGui::SliderFloat("Tree Zoom", &zoom, 0.5f, 3.0f, "%.2f");
-            ImGui::Text("Drag on canvas to pan");
-
-            // child canvas (ImGui clears background)
-            ImGui::BeginChild("##MergeTreeCanvas", ImVec2(300,0), false, ImGuiWindowFlags_NoScrollWithMouse);
-            ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-            ImVec2 canvas_sz = ImGui::GetContentRegionAvail();
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-
-            // pan handling
-            ImGui::InvisibleButton("pan_canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft);
-            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-            {
-                pan.x += ImGui::GetIO().MouseDelta.x;
-                pan.y += ImGui::GetIO().MouseDelta.y;
-            }
-
-            // rebuild caches only when dirty
-            if (mt_dirty)
-            {
-                mt_dirty = false;
-                mt_edges.clear();
-                mt_nodes.clear();
-
-                // DFS + prune
-                struct Frame { MergeTreeNode* n; int d; };
-                std::vector<Frame> stack;
-                std::vector<MergeTreeNode*> nodes;
-                stack.reserve(512);
-                nodes.reserve(512);
-
-                for (auto &kv : merge_tree->get_all_nodes())
-                    if (kv.second->parent == nullptr)
-                        stack.push_back({kv.second,0});
-
-                while (!stack.empty())
-                {
-                    auto f = stack.back(); stack.pop_back();
-                    auto *n = f.n; int d = f.d;
-                    if (d > app_state.target_level) continue;
-                    if ((int)n->death - (int)n->birth < app_state.persistence_threshold
-                        && n->children.empty()) continue;
-                    n->depth = d;
-                    nodes.push_back(n);
-                    for (auto *c : n->children)
-                        stack.push_back({c, d+1});
-                }
-
-                // compute max birth
-                uint32_t maxB = 1;
-                for (auto *n : nodes) maxB = std::max(maxB, n->birth);
-
-                // layout positions and fill caches
-                std::unordered_map<MergeTreeNode*,ImVec2> pos;
-                pos.reserve(nodes.size());
-                for (auto *n : nodes)
-                {
-                    float fx = float(n->birth)/float(maxB);
-                    ImVec2 P = ImVec2(canvas_p0.x + pan.x + fx * canvas_sz.x * zoom, canvas_p0.y + pan.y + n->depth * 50.0f * zoom);
-                    pos[n] = P;
-                    mt_nodes.emplace_back(P, n->id);
-                }
-                for (auto *n : nodes)
-                    for (auto *c : n->children)
-                        mt_edges.emplace_back(pos[n], pos[c]);
-            }
-
-            // draw from cache
-            const float edgeTh = 3.0f * zoom;
-            for (auto &e : mt_edges)
-                dl->AddLine(e.first, e.second, IM_COL32(200,200,120,255), edgeTh);
-
-            for (auto &nd : mt_nodes)
-            {
-                dl->AddCircleFilled(nd.first, 5.0f * zoom, IM_COL32(100,200,100,255));
-                char buf[16];
-                std::snprintf(buf,sizeof(buf), "%u", nd.second);
-                dl->AddText(
-                ImGui::GetFont(),
-                ImGui::GetFontSize(),
-                ImVec2(nd.first.x + 7*zoom, nd.first.y - 7 * zoom),
-                IM_COL32(240,240,240,255),
-                buf
-                );
-            }
-            ImGui::EndChild();
         }
 
         // Custom color selection

@@ -138,8 +138,6 @@ void Swapchain::create_framebuffers()
     fbci.height = extent.height;
     fbci.layers = 1;
 
-    std::cout << fbci.width << "," << fbci.height << std::endl;
-
     framebuffers.push_back(vmc.logical_device.get().createFramebuffer(fbci));
   }
 }

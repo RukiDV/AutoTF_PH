@@ -2,6 +2,12 @@
 
 #include <chrono>
 
+constexpr const char* CLR_RED    = "\033[31m";
+constexpr const char* CLR_GREEN  = "\033[32m";
+constexpr const char* CLR_YELLOW = "\033[33m";
+constexpr const char* CLR_BLUE   = "\033[34m";
+constexpr const char* CLR_RESET  = "\033[0m";
+
 template<class Precision = float>
 class Timer
 {
