@@ -38,7 +38,9 @@ public:
   void highlight_intersection(const PersistencePair &a, const PersistencePair &b);
   void highlight_union(const PersistencePair &a, const PersistencePair &b);
   void reproject_and_compare();
+  void fillTF2DFromVolume(const Volume& vol);
   std::vector<std::pair<int,int>> last_tf2d_bins;
+  bool use_gradient_highlight = false;
 private:  
   const VulkanMainContext& vmc;
   VulkanCommandContext& vcc;
@@ -54,6 +56,13 @@ private:
   uint32_t global_max_persistence = 1;
   const Volume* scalar_volume = nullptr;
   Volume gradient_volume;
+  std::vector<std::pair<int,int>> click_bins;
+  std::vector<ImU32>              click_colors;
+  int tf2dOverlayMode = 0; // 0 = Dots, 1 = Rects
+  int pending_reproject_idx = -1;
+
+  std::pair<int,int> last_scalar_range{0,0};
+  std::pair<int,int> last_gradient_range{0,0};
   std::vector<std::vector<int>> grads_by_scalar;
   std::unordered_set<uint32_t> brush_seen;
   std::vector<glm::vec4> tf_data;

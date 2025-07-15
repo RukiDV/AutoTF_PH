@@ -13,6 +13,21 @@ namespace ve
 {
 WorkContext::WorkContext(const VulkanMainContext& vmc, VulkanCommandContext& vcc) : vmc(vmc), vcc(vcc), storage(vmc, vcc), swapchain(vmc, vcc, storage), renderer(vmc, storage), ray_marcher(vmc, storage), persistence_texture_resource(vmc, storage), ui(vmc) {}
 
+void WorkContext::fillTF2DFromVolume(const Volume& vol)
+{
+  tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
+  for (size_t i = 0; i < vol.data.size(); ++i)
+  {
+    int s = int(vol.data[i]);
+    int g = int(gradient_volume.data[i]);
+    if (s>=0 && s<AppState::TF2D_BINS && g>=0 && g<AppState::TF2D_BINS)
+    {
+      int row = (AppState::TF2D_BINS-1)-g;
+      tf_data[row*AppState::TF2D_BINS + s] = glm::vec4(1,1,1,1);
+    }
+  }
+}
+
 void WorkContext::construct(AppState& app_state, const Volume& volume)
 {
   vcc.add_graphics_buffers(frames_in_flight);
@@ -107,8 +122,7 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
         uint32_t pers = (p.death > p.birth ? (p.death - p.birth) : 0);
         global_max_persistence = std::max(global_max_persistence, pers);
       }
-
-      if (&gradient_volume && !gradient_persistence_pairs.empty())
+       if (&gradient_volume && !gradient_persistence_pairs.empty())
       {
         transfer_function.update(gradient_persistence_pairs, gradient_volume, tf_data);
       }
@@ -143,61 +157,153 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
   {
     this->reset_custom_colors();
   });
-
-  ui.set_on_tf2d_selected([this](const std::vector<std::pair<int,int>>& bins, const ImVec4& col)
-  {
-    last_tf2d_bins = bins;
-    tf_data.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, glm::vec4(0.0f));
+ui.set_on_tf2d_selected([this](auto const& bins, ImVec4 col){
+    int B = AppState::TF2D_BINS;
+    tf_data.assign(B*B, glm::vec4(0.0f));
     for (auto& b : bins)
     {
-      size_t idx = size_t(b.second) * AppState::TF2D_BINS + size_t(b.first);
+      size_t idx = size_t(b.second)*B + size_t(b.first);
       tf_data[idx] = glm::vec4(col.x, col.y, col.z, col.w);
     }
-  });
+    ui.persistence_bins = click_bins;
+    ui.persistence_bin_colors = click_colors;
+
+    std::unordered_set<uint32_t> drawn;
+    drawn.reserve(bins.size());
+    for (auto& b : bins)
+    {
+      uint32_t key = (uint32_t(b.first)<<16) | uint32_t(b.second);
+      drawn.insert(key);
+    }
+
+    // Ground-Truth-Reprojection
+    ImU32 ucol = ImGui::ColorConvertFloat4ToU32(col);
+    for (size_t i = 0; i < scalar_volume->data.size(); ++i)
+    {
+      int s = int(scalar_volume->data[i]);
+      int g = int(gradient_volume.data[i]);
+      if (s < 0 || s >= B || g < 0 || g >= B) continue;
+      int fg = (B-1) - g;
+      uint32_t key = (uint32_t(s)<<16) | uint32_t(fg);
+      if (!drawn.count(key)) 
+        continue;
+      ui.persistence_bins.emplace_back(s, fg);
+      ui.persistence_bin_colors.push_back(ucol);
+    }
+    last_tf2d_bins = ui.persistence_bins;
+});
+
 
   ui.set_on_reproject([this]() 
   { 
     reproject_and_compare(); 
   });
-
   ui.set_on_persistence_reprojected([this](int featIdx)
   {
+    std::cout << "[WC] on_persistence_reprojected called for featIdx=" << featIdx << "\n";
+    pending_reproject_idx = featIdx;
+
     ui.persistence_bins.clear();
     ui.persistence_bin_colors.clear();
+    ImU32 green = IM_COL32(0,255,0,200);
 
-    ImU32 green = IM_COL32(0, 255, 0, 200);
+    bool gradMode = (ui.get_pd_mode() == 1);
+    const auto &pairs = gradMode ? gradient_persistence_pairs : persistence_pairs;
 
-    // clamp & sort scalar range
-    auto p = persistence_pairs[featIdx];
-    uint32_t bs = std::min(p.birth,  uint32_t(AppState::TF2D_BINS - 1));
-    uint32_t ds = std::min(p.death,  uint32_t(AppState::TF2D_BINS - 1));
-    if (bs > ds) std::swap(bs, ds);
-    // pad zero-width
-    if (bs == ds)
+    auto p = pairs[featIdx];
+    int b = std::clamp<int>(p.birth, 0, AppState::TF2D_BINS-1);
+    int d = std::clamp<int>(p.death, 0, AppState::TF2D_BINS-1);
+    if (b > d) std::swap(b,d);
+    if (b == d)
     {
-      bs = (bs > 0      ? bs - 1 : 0);
-      ds = (ds < AppState::TF2D_BINS - 1  ? ds + 1 : AppState::TF2D_BINS - 1);
+      b = std::max(b-1, 0); d = std::min(d+1.0, AppState::TF2D_BINS-1.0);
     }
 
-    // scan voxels
-    for (size_t vid = 0; vid < scalar_volume->data.size(); ++vid)
-    {
-      uint32_t s = uint32_t(scalar_volume->data[vid]);
-      if (s < bs || s > ds) continue;
-      uint32_t g = uint32_t(gradient_volume.data[vid]);
-      int fg = int((AppState::TF2D_BINS - 1) - g); // flip for plotting
+    // primary (birth‒death) and secondary (gradient) clamps
+    int B = AppState::TF2D_BINS;
+    int s_min, s_max, g_min, g_max;
 
-      ui.persistence_bins.emplace_back(int(s), fg);
+    if (!gradMode)
+    {
+      s_min = b;
+      s_max = d;
+      g_min = 0;
+      g_max = B-1;
+    } else
+    {
+      g_min = b;
+      g_max = d;
+      s_min = 0;
+      s_max = B-1;
+    }
+
+    // secondary slider (top/bottom)
+    if (ui.tf2d_use_secondary)
+    {
+      if (!gradMode)
+      {
+        int fmin = ui.tf2d_secondary_min;
+        int fmax = ui.tf2d_secondary_max;
+        g_min = (B-1) - fmax;
+        g_max = (B-1) - fmin;
+      } else
+      {
+        s_min = ui.tf2d_secondary_min;
+        s_max = ui.tf2d_secondary_max;
+      }
+    }
+
+    // primary slider (left/right)
+    if (ui.tf2d_use_primary)
+    {
+      if (!gradMode)
+      {
+        s_min = ui.tf2d_primary_min;
+        s_max = ui.tf2d_primary_max;
+      } else
+      {
+        int fmin = ui.tf2d_primary_min;
+        int fmax = ui.tf2d_primary_max;
+        g_min = (B-1) - fmax;
+        g_max = (B-1) - fmin;
+      }
+    }
+
+
+    // gather voxels that pass both clamps
+    for (size_t i = 0; i < scalar_volume->data.size(); ++i)
+    {
+      int s = int(scalar_volume->data[i]);
+      int g = int(gradient_volume.data[i]);
+      if (s<0||s>=B||g<0||g>=B) continue;
+      if (s < s_min || s > s_max) continue;
+      if (g < g_min || g > g_max) continue;
+      int fg = (B-1) - g;
+      ui.persistence_bins.emplace_back(s, fg);
       ui.persistence_bin_colors.push_back(green);
     }
+
+    click_bins   = ui.persistence_bins;
+    click_colors = ui.persistence_bin_colors;
     last_tf2d_bins = ui.persistence_bins;
+
+    // 4) Update volume highlight
+    PersistencePair per = (gradMode ? gradient_persistence_pairs[featIdx] : persistence_pairs[featIdx]);
+    std::vector<std::pair<PersistencePair,float>> single{{per, 1.0f}};
+    this->volume_highlight_persistence_pairs(single, ui.get_selected_ramp());
   });
 
   ui.set_on_persistence_multi_reprojected([this](const std::vector<int>& featIdxs)
   {
+    ui.persistence_bins.clear();
+    ui.persistence_bin_colors.clear();
+
+    bool gradMode = (ui.get_pd_mode() == 1);
+    int B = AppState::TF2D_BINS;
+
     // to avoid duplicates
     std::unordered_set<uint32_t> seen;
-    seen.reserve((size_t) AppState::TF2D_BINS * AppState::TF2D_BINS);
+    seen.reserve(size_t(B) * size_t(B));
 
     for (size_t fi = 0; fi < featIdxs.size(); ++fi)
     {
@@ -208,34 +314,57 @@ void WorkContext::construct(AppState& app_state, const Volume& volume)
       ImVec4 cf(r, g, b, 0.6f);
       ImU32 colU = ImGui::ColorConvertFloat4ToU32(cf);
 
-      // clamp & pad
-      auto p = persistence_pairs[featIdxs[fi]];
-      int bs = std::clamp<int>(p.birth,  0, AppState::TF2D_BINS - 1);
-      int ds = std::clamp<int>(p.death,  0, AppState::TF2D_BINS - 1);
+      auto const& pairs = gradMode ? gradient_persistence_pairs : persistence_pairs;
+      auto p = pairs[featIdxs[fi]];
+
+      int bs = std::clamp<int>(p.birth, 0, B-1);
+      int ds = std::clamp<int>(p.death, 0, B-1);
       if (bs > ds) std::swap(bs, ds);
       if (bs == ds)
       {
-        bs = std::max(bs - 1.0, 0.0);
-        ds = std::min(ds + 1.0, AppState::TF2D_BINS-1.0);
+        bs = std::max(bs-1, 0);
+        ds = std::min(ds+1, B-1);
       }
 
-      // only iterate the scalar‐bins in [bs..ds]
-      for (int s = bs; s <= ds; ++s)
+      if (!gradMode)
       {
-        for (int g : grads_by_scalar[s])
+        // scalar mode: iterate scalar in [bs..ds]
+        for (int s = bs; s <= ds; ++s)
         {
-          int fg = (AppState::TF2D_BINS - 1) - g;
-          uint32_t key = (uint32_t(s) << 16) | uint32_t(fg);
-          if (seen.insert(key).second)
+          for (int gval : grads_by_scalar[s])
           {
-            ui.persistence_bins.emplace_back(s, fg);
-            ui.persistence_bin_colors.push_back(colU);
+            int fg = (B-1) - gval;
+            uint32_t key = (uint32_t(s)<<16) | uint32_t(fg);
+            if (seen.insert(key).second)
+            {
+              ui.persistence_bins.emplace_back(s, fg);
+              ui.persistence_bin_colors.push_back(colU);
+            }
+          }
+        }
+      }
+      else
+      {
+        // gradient mode: iterate all scalar, but only gradients in [bs..ds]
+        for (int s = 0; s < B; ++s)
+        {
+          for (int gval : grads_by_scalar[s])
+          {
+            if (gval < bs || gval > ds) continue;
+            int fg = (B-1) - gval;
+            uint32_t key = (uint32_t(s)<<16) | uint32_t(fg);
+            if (seen.insert(key).second)
+            {
+              ui.persistence_bins.emplace_back(s, fg);
+              ui.persistence_bin_colors.push_back(colU);
+            }
           }
         }
       }
     }
+
     last_tf2d_bins = ui.persistence_bins;
-  });
+});
 
   ui.set_on_brush_selected([this](const std::vector<PersistencePair>& sel, const ImVec4& brush_col)
   {
@@ -354,6 +483,14 @@ void WorkContext::render(uint32_t image_idx, AppState& app_state, uint32_t read_
 
   app_state.cam.update_data();
   storage.get_buffer_by_name("ray_marcher_uniform_buffer").update_data_bytes(&app_state.cam.data, sizeof(Camera::Data));
+  if (pending_reproject_idx >= 0)
+  {
+  // rebuild tf_data right now for that one feature
+  PersistencePair p = (ui.get_pd_mode()==1 ? gradient_persistence_pairs[pending_reproject_idx] : persistence_pairs[pending_reproject_idx]);
+  std::vector<std::pair<PersistencePair,float>> single{{p,1.0f}};
+  volume_highlight_persistence_pairs(single, ui.get_selected_ramp());
+  pending_reproject_idx = -1;
+}
   
   auto &buf = storage.get_buffer_by_name("transfer_function");
   buf.update_data(tf_data);
@@ -501,34 +638,61 @@ void WorkContext::volume_highlight_persistence_pairs(const std::vector<std::pair
       alpha *= ui.get_custom_falloff();
     }
 
-    uint32_t bi = std::clamp(p.birth, 0u, 255u);
-    uint32_t di = std::clamp(p.death, 0u, 255u);
+    int B = AppState::TF2D_BINS;
+    uint32_t bi = std::clamp(p.birth, 0u, B-1u);
+    uint32_t di = std::clamp(p.death, 0u, B-1u);
     if (bi > di) std::swap(bi, di);
 
-    for (int g = 0; g < AppState::TF2D_BINS; ++g)
+    // primary
+    uint32_t s0 = bi, s1 = di;
+    if (ui.tf2d_use_primary)
     {
-      int base = g * AppState::TF2D_BINS;
-      for (uint32_t s = bi; s <= di; ++s)
+      s0 = ui.tf2d_primary_min;
+      s1 = ui.tf2d_primary_max;
+    }
+
+    // gradient‐axis bounds
+    uint32_t g0 = 0, g1 = B-1;
+    if (ui.tf2d_use_secondary)
+    {
+      // secondary slider always clamps the gradient axis in scalar mode
+      g0 = ui.tf2d_secondary_min;
+      g1 = ui.tf2d_secondary_max;
+    }
+
+    for (uint32_t g = g0; g <= g1; ++g)
+    {
+      uint32_t fg   = (B - 1) - g;
+      uint32_t base = fg * B;
+      for (uint32_t s = s0; s <= s1; ++s)
       {
         tf_data[base + s] = glm::vec4(rgb, alpha);
       }
     }
-  } 
+  }
 
+  // reapply custom_colors exactly as before
   for (auto& assign : custom_colors)
   {
-    auto& p = assign.first;
-    auto& col = assign.second;
+    const auto& p = assign.first;
+    const auto& col = assign.second;
     uint32_t bi = std::clamp(p.birth, 0u, (uint32_t)AppState::TF2D_BINS - 1);
     uint32_t di = std::clamp(p.death, 0u, (uint32_t)AppState::TF2D_BINS - 1);
     if (bi > di) std::swap(bi, di);
 
-    for (int g = 0; g < AppState::TF2D_BINS; ++g)
+    uint32_t g0 = 0, g1 = AppState::TF2D_BINS-1;
+    if (ui.tf2d_use_secondary)
     {
-      int base = g * AppState::TF2D_BINS;
+      g0 = ui.tf2d_secondary_min;
+      g1 = ui.tf2d_secondary_max;
+    }
+
+    for (uint32_t g = g0; g <= g1; ++g)
+    {
+      uint32_t base = g * AppState::TF2D_BINS;
       for (uint32_t s = bi; s <= di; ++s)
       {
-        tf_data[base + s] = col;
+          tf_data[base + s] = col;
       }
     }
   }

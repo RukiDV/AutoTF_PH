@@ -85,7 +85,8 @@ void UI::set_volume(const Volume* volume)
 void UI::set_persistence_pairs(const std::vector<PersistencePair>* pairs)
 {
     this->persistence_pairs = pairs;
-    cache_dirty = true; 
+    cache_dirty = true;
+    initial_feature_highlighted = false;
 }
 
 void UI::set_persistence_texture(ImTextureID tex)
@@ -116,6 +117,8 @@ void UI::set_on_brush_selected(const std::function<void(const std::vector<Persis
 void UI::set_gradient_persistence_pairs(const std::vector<PersistencePair>* gp)
 {
     gradient_pairs = gp;
+    cache_dirty = true;
+    initial_feature_highlighted = false;
 }
 
 void UI::set_merge_tree(MergeTree* mt)
@@ -286,6 +289,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             multi_selected_idxs.clear();
             multi_selected_cols.clear();
             range_active = false;
+            cache_dirty = true;
+            initial_feature_highlighted = false;
+            viewType = 0;
         }
 
         ImGui::Separator();
@@ -440,10 +446,10 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 brush_inner_ratio = 0.7f;  
             }
             ImGui::SameLine();
-            ImGui::SliderFloat("Density Cutoff", &app_state.density_threshold, 0.0f, 1.0f, "%.2f");
             ImGui::Checkbox("Show Dots", &show_dots);
             ImGui::SliderInt("Max Points", &max_points_to_show, 1, N);
             ImGui::PushID("range_filters");
+            ImGui::SliderFloat("Density Cutoff", &app_state.density_threshold, 0.0f, 1.0f, "%.2f");
             bool range_changed = false;
             range_changed |= ImGui::SliderFloat2("Birth Range", birth_range, 0.0f, 255.0f, "%.0f");
             range_changed |= ImGui::SliderFloat2("Death Range", death_range, 0.0f, 255.0f, "%.0f");
@@ -790,8 +796,9 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                                 // fire single-feature reprojection
                                 int featIdx = idxs[best_i];
+                                last_feat_idx = featIdx;
                                 if (on_persistence_reprojected)
-                                    on_persistence_reprojected(featIdx);
+                                    on_persistence_reprojected(last_feat_idx); 
                             }
                         }
                     }
@@ -977,8 +984,6 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         }
                     }
                 }
-
-                ImGui::NewLine(); ImGui::Spacing();
 
                 if (selected_idx >= 0)
                 {
@@ -1377,6 +1382,37 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                 if (on_clear_custom_colors) on_clear_custom_colors();
             }
         }
+        ImGui::Checkbox("Use secondary axis clamp", &tf2d_use_secondary);
+        if (tf2d_use_secondary)
+        {
+            // stash old slider values
+            int old0 = tf2d_secondary_min, old1 = tf2d_secondary_max;
+            // draw the 2‐int slider
+            if (ImGui::SliderInt2("Secondary range", &tf2d_secondary_min, 0, AppState::TF2D_BINS - 1))
+            {
+                std::cout << "[UI] Slider moved: new range = (" << tf2d_secondary_min << "," << tf2d_secondary_max << ")\n";
+                if (tf2d_use_secondary && last_feat_idx >= 0 && on_persistence_reprojected)
+                {
+                    std::cout << "[UI]  → reprojecting feature " << last_feat_idx << "\n";
+                    on_persistence_reprojected(last_feat_idx);
+                }
+            } 
+        }
+
+        ImGui::Checkbox("Use primary axis clamp", &tf2d_use_primary);
+        if (tf2d_use_primary)
+        {
+            int oldP0 = tf2d_primary_min, oldP1 = tf2d_primary_max;
+            if (ImGui::SliderInt2("Primary range", &tf2d_primary_min, 0, AppState::TF2D_BINS - 1))
+            {
+                std::cout << "[UI] Primary slider moved: new range = ("<< tf2d_primary_min << "," << tf2d_primary_max << ")\n";
+                if (last_feat_idx >= 0 && on_persistence_reprojected)
+                {
+                    std::cout << "[UI]  → reprojecting feature " << last_feat_idx << "\n";
+                    on_persistence_reprojected(last_feat_idx);
+                }
+            }
+        }
         ImGui::Separator();
 
         if (ImGui::Button("Evaluate Reprojection"))
@@ -1444,7 +1480,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     ImU32 col = IM_COL32(r, g, b, a);
 
                     // draw each circle with its own opacity
-                    dl->AddCircleFilled(ImVec2((float)pp.x, (float)pp.y), 2.0f, col);
+                    dl->AddCircleFilled(ImVec2((float)pp.x, (float)pp.y), 0.5f, col);
                 }
             }
             else

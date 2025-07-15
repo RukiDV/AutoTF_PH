@@ -27,6 +27,7 @@ public:
     RAMP_CUSTOM   = 5
   };
   explicit UI(const VulkanMainContext& vmc);
+  using OverlayModeChangedFn = std::function<void(int mode)>;
 
   int selected_ramp = RAMP_HSV; 
   ImVec4 custom_start_color {1,1,0,1};
@@ -78,6 +79,9 @@ public:
   void set_persistence_pairs(const std::vector<PersistencePair>* pairs,std::vector<std::vector<size_t>>&& voxel_indices);
   std::vector<std::pair<int,int>> persistence_bins;
   void set_on_evaluation(const std::function<void(float,float,float,float)>& cb);
+  void set_on_tf2d_overlay_mode_changed(OverlayModeChangedFn fn) {
+    on_tf2d_overlay_mode_changed = std::move(fn);
+  }
   float last_J_arc = 0.0f;
   float last_J_box = 0.0f;
   float last_precision = 0.0f;
@@ -94,6 +98,14 @@ public:
   ImVec4 get_custom_end_color() const { return custom_end_color; }
   float get_custom_falloff() const { return custom_opacity_falloff; }
   int get_selected_ramp() const { return selected_ramp; }
+  int get_pd_mode() const { return pd_mode; }
+  int tf2d_secondary_min = 0;
+  int tf2d_secondary_max = AppState::TF2D_BINS-1;
+  bool tf2d_use_secondary = false;
+  int last_feat_idx = -1;
+  int tf2d_primary_min = 0;
+  int tf2d_primary_max = AppState::TF2D_BINS-1;
+  bool tf2d_use_primary = false;
 
 private:
   const VulkanMainContext& vmc;
@@ -125,6 +137,7 @@ private:
   float highlight_opacity = 1.0f;
   int selected_set_op = 0; // 0: diff, 1: intersect, 2: union
   ImVec4 selected_brush_color{1,0,0,1};
+
 
   bool tf2d_drag = false;
   ImVec2 tf2d_start;
@@ -186,5 +199,7 @@ private:
   std::function<void()> on_reproject;
   std::function<void(int)> on_persistence_reprojected;
   std::function<void(const std::vector<int>& featureIdxs)> on_persistence_multi_reprojected;
+
+    OverlayModeChangedFn on_tf2d_overlay_mode_changed;
 };
 } // namespace ve
