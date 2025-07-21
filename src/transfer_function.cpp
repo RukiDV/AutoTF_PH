@@ -47,6 +47,7 @@ void TransferFunction::update(const std::vector<PersistencePair>& pairs, const V
   {
     uint32_t bi, di; 
     glm::vec3 rgb;
+    float a;
   };
 
   std::vector<Brush> brushes;
@@ -55,8 +56,9 @@ void TransferFunction::update(const std::vector<PersistencePair>& pairs, const V
   {
     uint32_t pers = (p.death > p.birth ? p.death - p.birth : 0);
     float norm_p = float(pers) / float(max_pers);
-    float hue    = (1.0f - norm_p) * 240.0f;
-    glm::vec3 rgb  = hsv2rgb(hue, 1.0f, 1.0f);
+    float hue = (1.0f - norm_p) * 240.0f;
+    glm::vec3 rgb = hsv2rgb(hue, 1.0f, 1.0f);
+    float a = 1.0;
 
     float nb = (float(p.birth) - float(vol_min)) / span;
     float nd = (float(p.death) - float(vol_min)) / span;
@@ -64,19 +66,29 @@ void TransferFunction::update(const std::vector<PersistencePair>& pairs, const V
     uint32_t di = uint32_t(std::clamp(nd, 0.0f, 1.0f) * float(AppState::TF2D_BINS - 1));
     if (bi > di) std::swap(bi, di);
 
-    brushes.push_back({bi, di, rgb});
+    brushes.push_back({bi, di, rgb, a});
   }
 
   // parallel paint by row
   #pragma omp parallel for schedule(static)
   for (int g = 0; g < AppState::TF2D_BINS; ++g)
   {
-    auto row_begin = tf_data.begin() + g * AppState::TF2D_BINS;
+    auto row_begin = tf_data.data() + g * AppState::TF2D_BINS;
     for (const auto &br : brushes)
     {
-      auto it = row_begin + br.bi;
-      auto it_end = row_begin + br.di + 1;
-      std::fill(it, it_end, glm::vec4(br.rgb, 1.0f));
+      glm::vec4 src{ br.rgb, br.a };
+
+      for (uint32_t x = br.bi; x <= br.di; ++x)
+      {
+        auto &dst = row_begin[x];
+        float invA = 1.0f - src.w;
+
+        dst.x = src.w * src.x + invA * dst.x;
+        dst.y = src.w * src.y + invA * dst.y;
+        dst.z = src.w * src.z + invA * dst.z;
+        dst.w = src.w + invA * dst.w;
+      }
     }
   }
 }
+ 

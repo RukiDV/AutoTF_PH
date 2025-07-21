@@ -34,7 +34,11 @@ public:
   ImVec4 custom_end_color {1,0,1,1};
   float custom_opacity_falloff = 1.0f;
   ImVec4 diff_color = ImVec4(0.0f, 1.0f, 1.0f, 1.0f);
-  bool diff_enabled = true;        
+  bool diff_enabled = true;
+  bool onlyA_enabled = false;
+  ImVec4 onlyA_color{1,0,0,1};
+  bool onlyB_enabled = false;
+  ImVec4 onlyB_color{0,1,0,1};
   ImVec4 intersect_color_common = ImVec4(1.0f, 0.5f, 0.0f, 1.0f);
   bool intersect_enabled_common = true;
   ImVec4 intersect_color_Aonly = ImVec4(1.0f, 0.0f, 0.0f, 0.3f); 
@@ -68,6 +72,8 @@ public:
   void set_on_diff_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
   void set_on_intersect_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
   void set_on_union_selected(const std::function<void(const PersistencePair&, const PersistencePair&)>& cb);
+  void set_on_onlyA_selected(const std::function<void(const PersistencePair&, const PersistencePair&, const ImVec4&)>& cb);
+  void set_on_onlyB_selected(const std::function<void(const PersistencePair&, const PersistencePair&, const ImVec4&)>& cb);
   void mark_merge_tree_dirty();
   void set_on_custom_color_chosen(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb);
   void set_on_clear_custom_colors(const std::function<void()>& cb);
@@ -92,6 +98,8 @@ public:
   std::vector<ImVec2> persistence_voxels;
   std::function<void(float J_arc, float J_box, float precision, float recall)> on_evaluation;
   std::vector<ImU32> persistence_bin_colors;
+  std::unordered_map<int,std::array<int,2>> primary_clamp_per_point;
+  std::unordered_map<int,std::array<int,2>> secondary_clamp_per_point;
   
   const Volume* get_volume() const { return volume; }
   ImVec4 get_custom_start_color() const { return custom_start_color; }
@@ -166,6 +174,8 @@ private:
   int tf2d_overlay_mode = 0; // 0=dots, 1=rects
   float tf2d_dot_opacity = 1.0f;
   float tf2d_rect_opacity = 0.4f; 
+  std::vector<std::array<int,4>> feature_boxes;
+  std::vector<ImU32> feature_colors;
   const std::vector<PersistencePair>* persistence_pairs = nullptr;
   std::vector<std::vector<size_t>> persistence_voxel_indices;
   std::vector<double> xs, ys;
@@ -191,6 +201,8 @@ private:
   std::function<void(const PersistencePair&, const PersistencePair&)> on_diff_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_intersect_selected;
   std::function<void(const PersistencePair&, const PersistencePair&)> on_union_selected;
+  std::function<void(const PersistencePair&, const PersistencePair&, const ImVec4&)> on_onlyA_selected;
+  std::function<void(const PersistencePair&, const PersistencePair&, const ImVec4&)> on_onlyB_selected;
   std::function<void(const PersistencePair&)> on_pair_selected;
   std::function<void(const std::vector<PersistencePair>&)> on_range_applied;
   std::function<void()> on_clear_custom_colors;

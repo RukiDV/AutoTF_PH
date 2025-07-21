@@ -6,6 +6,7 @@
 #include <limits>
 #include <implot.h> 
 #include <set>
+#include <cstdio> 
 
 #include <iostream>
 #include "threshold_cut.hpp"
@@ -160,6 +161,15 @@ void UI::set_on_union_selected(const std::function<void(const PersistencePair&, 
     on_union_selected = cb;
 }
 
+void UI::set_on_onlyA_selected(const std::function<void(const PersistencePair&, const PersistencePair&, const ImVec4&)>& cb)
+{
+    on_onlyA_selected = cb;
+}
+void UI::set_on_onlyB_selected(const std::function<void(const PersistencePair&, const PersistencePair&, const ImVec4&)>& cb)
+{
+    on_onlyB_selected = cb;
+}
+
 void UI::set_on_custom_color_chosen(const std::function<void(const std::vector<PersistencePair>&, const ImVec4&)>& cb)
 {
 on_color_chosen = cb;
@@ -212,6 +222,8 @@ void UI::clear_selection()
     brush_cluster_colors.clear();
     brush_cluster_outlines.clear();
     region_selected_idxs.clear();
+    primary_clamp_per_point.clear();
+    secondary_clamp_per_point.clear();
 }
 
 void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
@@ -755,6 +767,12 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                                 {
                                     multi_selected_idxs.push_back(best_i);
                                     // generate a color for this selection
+                                    int featIdx = idxs[best_i];
+                                    if (!primary_clamp_per_point.count(featIdx)) {
+                                    primary_clamp_per_point[featIdx]   = { 0, AppState::TF2D_BINS-1 };
+                                    secondary_clamp_per_point[featIdx] = { 0, AppState::TF2D_BINS-1 };
+                                    }
+                                    
                                     float hue = float(multi_selected_idxs.size()-1) / 6.0f * (240.0f / 360.0f);
                                     float r,g,b;
                                     ImGui::ColorConvertHSVtoRGB(hue, 1, 1, r, g, b);
@@ -850,15 +868,42 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                     // dropdown for set operations
                     static int selected_set_op = 0;
-                    const char* set_op_names[] = { "Difference", "Intersection", "Union" };
+                    const char* set_op_names[] = { "Show A", "Show B", "Difference", "Intersection", "Union" };
                     if (ImGui::Combo("Set Operation", &selected_set_op, set_op_names, IM_ARRAYSIZE(set_op_names)))
                     {
                         need_update = true;
                     }
                     ImGui::Separator();
 
+                    if (selected_set_op == 0) // Show A
+                    {
+                        if (ImGui::Checkbox("Show A", &onlyA_enabled))
+                            need_update = true;
+                        if (onlyA_enabled)
+                        {
+                            ImGui::SameLine(); ImGui::Text("Color:");
+                            ImGui::SameLine();
+                            if (ImGui::ColorEdit4("##onlyA_color", &onlyA_color.x, ImGuiColorEditFlags_AlphaBar))
+                                need_update = true;
+                        }
+                        ImGui::Separator();
+                    }
+                    else if (selected_set_op == 1) // Show B
+                    {
+                        if (ImGui::Checkbox("Show B", &onlyB_enabled))
+                            need_update = true;
+                        if (onlyB_enabled)
+                        {
+                            ImGui::SameLine(); ImGui::Text("Color:");
+                            ImGui::SameLine();
+                            if (ImGui::ColorEdit4("##onlyB_color", &onlyB_color.x, ImGuiColorEditFlags_AlphaBar))
+                                need_update = true;
+                        }
+                        ImGui::Separator();
+                    }
+
                     // color editor and checkboxes for each operation
-                    if (selected_set_op == 0) // difference
+                    else if (selected_set_op == 2) // difference
                     {
                         // A \ B
                         if (ImGui::Checkbox("Show A \\ B", &diff_enabled))
@@ -877,7 +922,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                         }
                         ImGui::Separator();
                     }
-                    else if (selected_set_op == 1) // intersection
+                    else if (selected_set_op == 3) // intersection
                     {
                         // A ∩ B
                         if (ImGui::Checkbox("Show A and B", &intersect_enabled_common))
@@ -921,7 +966,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                             need_update = true;
 
                     }
-                    else if (selected_set_op == 2) // union
+                    else if (selected_set_op == 4) // union
                     {
                         // A \ B
                         if (ImGui::Checkbox("Show A \\ B", &union_enabled_Aonly))
@@ -972,13 +1017,19 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
                     {
                         switch (selected_set_op)
                         {
-                            case 0: // difference
+                            case 0:
+                                if (onlyA_enabled && on_onlyA_selected) on_onlyA_selected(p1, p2, onlyA_color);
+                                break;
+                            case 1:
+                                if (on_onlyB_selected) on_onlyB_selected(p1, p2, onlyB_color);
+                                break;
+                            case 2:
                                 if (on_diff_selected) on_diff_selected(p1, p2);
                                 break;
-                            case 1: // intersection
+                            case 3:
                                 if (on_intersect_selected) on_intersect_selected(p1, p2);
                                 break;
-                            case 2: // union
+                            case 4:
                                 if (on_union_selected) on_union_selected(p1, p2);
                                 break;
                         }
@@ -1169,7 +1220,7 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
 
                                 ImVec4 col;
                                 if (is_sel)
-                                    col = ImVec4(1.0f, 0.4f, 0.7f, 1.0f); // pink
+                                    col = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // pink
                                 else
                                 {
                                     float hue = (1.0f - (lengths[rank].first / (maxP > 0 ? maxP : 1.0f))) * (240.0f/360.0f);
@@ -1282,24 +1333,34 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         {
             ImPlotPoint p0 = ImPlot::PixelsToPlot(a);
             ImPlotPoint p1 = ImPlot::PixelsToPlot(b);
-            int s0 = std::clamp((int)floor (std::min(p0.x,p1.x)), 0, int(AppState::TF2D_BINS) - 1);
-            int s1 = std::clamp((int)ceil (std::max(p0.x,p1.x)), 0, int(AppState::TF2D_BINS) - 1);
-            int g0 = std::clamp((int)floor (std::min(p0.y,p1.y)), 0, int(AppState::TF2D_BINS) - 1);
-            int g1 = std::clamp((int)ceil (std::max(p0.y,p1.y)), 0, int(AppState::TF2D_BINS) - 1);
-            
-            if (on_tf2d_selected)
+
+            int ix0 = std::clamp(int(floor (std::min(p0.x, p1.x))), 0, int(AppState::TF2D_BINS - 1));
+            int ix1 = std::clamp(int(ceil (std::max(p0.x, p1.x))), 0, int(AppState::TF2D_BINS - 1));
+            int iy0 = std::clamp(int(floor (std::min(p0.y, p1.y))), 0, int(AppState::TF2D_BINS - 1));
+            int iy1 = std::clamp(int(ceil (std::max(p0.y, p1.y))), 0, int(AppState::TF2D_BINS - 1));
+
+            if (!on_tf2d_selected) return;
+
+            std::vector<std::pair<int,int>> sel;
+            sel.reserve((ix1 - ix0 + 1) * (iy1 - iy0 + 1));
+
+            bool gradMode = (pd_mode == 1);
+
+            if (!gradMode)
             {
-                std::vector<std::pair<int,int>> sel;
-                sel.reserve((s1-s0+1)*(g1-g0+1));
-                for (int g = g0; g <= g1; ++g)
-                {
-                    for (int s = s0; s <= s1; ++s)
-                    {
-                        sel.emplace_back(s,g);
-                    }
-                }
-                on_tf2d_selected(sel, rect_color);
+                // scalar mode
+                for (int sx = ix0; sx <= ix1; ++sx)
+                    for (int gy = iy0; gy <= iy1; ++gy)
+                        sel.emplace_back(sx, gy);
             }
+            else
+            {
+                // gradient mode
+                for (int gx = ix0; gx <= ix1; ++gx)
+                    for (int sy = iy0; sy <= iy1; ++sy)
+                        sel.emplace_back((AppState::TF2D_BINS -1) - gx, sy); 
+            }
+            on_tf2d_selected(sel, rect_color);
         };
 
          // helper to convert pixel to plot point and circle of coverage into bin‐hits
@@ -1415,6 +1476,49 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
         }
         ImGui::Separator();
 
+        // after the "Use primary/secondary clamp" checkboxes, but before ImPlot::BeginPlot:
+        if (!multi_selected_idxs.empty())
+        {
+            ImGui::Separator();
+            ImGui::Text("Per‑point clamps:");
+
+            // for each feature index, draw two slider
+            for (int featIdx : multi_selected_idxs)
+            {
+                // primary
+                char bufPri[32];
+                std::snprintf(bufPri, sizeof(bufPri), "Primary clamp ##%d", featIdx);
+                auto &pr = primary_clamp_per_point[featIdx];
+                // stash old so we can detect a change
+                int old0 = pr[0], old1 = pr[1];
+                if (ImGui::SliderInt2(bufPri, pr.data(), 0, AppState::TF2D_BINS - 1))
+                {
+                    // only fire when the values actually changed
+                    if (pr[0] != old0 || pr[1] != old1)
+                    {
+                        std::cout << "[UI] Feature " << featIdx << " primary clamp moved: (" << pr[0] << "," << pr[1] << ")\n";
+                        if (on_persistence_multi_reprojected)
+                            on_persistence_multi_reprojected(multi_selected_idxs);
+                    }
+                }
+                // secondary
+                char bufSec[32];
+                std::snprintf(bufSec, sizeof(bufSec), "Secondary clamp ##%d", featIdx);
+                auto &sr = secondary_clamp_per_point[featIdx];
+                old0 = sr[0]; old1 = sr[1];
+                if (ImGui::SliderInt2(bufSec, sr.data(), 0, AppState::TF2D_BINS - 1))
+                {
+                    if (sr[0] != old0 || sr[1] != old1)
+                    {
+                        std::cout << "[UI] Feature " << featIdx << " secondary clamp moved: (" << sr[0] << "," << sr[1] << ")\n";
+                        if (on_persistence_multi_reprojected)
+                            on_persistence_multi_reprojected(multi_selected_idxs);
+                    }
+                }
+            }
+            ImGui::Separator();
+        }
+
         if (ImGui::Button("Evaluate Reprojection"))
         {
             if (on_reproject) on_reproject();
@@ -1446,91 +1550,115 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             ImGui::SliderFloat("Rect Opacity", &tf2d_rect_opacity, 0.0f, 1.0f, "%.2f");
         }
         ImGui::Separator();
+
+        auto* data = density.data();
+        static std::vector<float> density_t;
+        bool gradMode = (pd_mode == 1);
+        if (gradMode)
+        {
+            density_t.assign(AppState::TF2D_BINS * AppState::TF2D_BINS, 0.0f);
+    
+            for (int gy = 0; gy < AppState::TF2D_BINS; ++gy)
+                for (int sx = 0; sx < AppState::TF2D_BINS; ++sx)
+                    density_t[(AppState::TF2D_BINS - 1 - sx) * AppState::TF2D_BINS + gy] = density[gy * AppState::TF2D_BINS + sx];
+            // dmax
+            float tmax = 0.0f;
+            for (float v : density_t) tmax = std::max(tmax, v);
+            dmax = tmax < 1e-6f ? 1.0f : tmax;
+            data = density_t.data();
+        } 
         
         if (ImPlot::BeginPlot("TF2D Heatmap", ImVec2(-1,300)))
         {
             ImU32 rect_preview_col = ImGui::ColorConvertFloat4ToU32(ImVec4(rect_color.x, rect_color.y, rect_color.z, rect_color.w * 0.6f));
             ImU32 rect_final_col = ImGui::ColorConvertFloat4ToU32(rect_color);
-            ImPlot::SetupAxes("Scalar Value", "Gradient Magnitude");
             
-            // heatmap for density visualization
-            ImPlot::PushColormap(ImPlotColormap_Viridis);
-            ImPlot::PlotHeatmap("##heatmap", density.data(), AppState::TF2D_BINS, AppState::TF2D_BINS, 0.0, dmax, nullptr, ImPlotPoint(0, 0), ImPlotPoint(AppState::TF2D_BINS, AppState::TF2D_BINS), ImPlotHeatmapFlags_None);
-            ImPlot::PopColormap();
-
-            auto dl = ImPlot::GetPlotDrawList();
-
-            // dots mode
-            if (tf2d_overlay_mode == 0) 
-            {
-                for (size_t i = 0; i < persistence_bins.size(); ++i)
-                {
-                    auto &bin = persistence_bins[i];
-                    // compute screen position
-                    ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(bin.first + 0.5, (AppState::TF2D_BINS - 1 - bin.second) + 0.5));
-
-                    // unpack the stored RGB
-                    ImU32 base_col = (i < persistence_bin_colors.size()) ? persistence_bin_colors[i] : IM_COL32(0,255,0,200);
-                    uint8_t r =  base_col & 0xFF;
-                    uint8_t g = (base_col >> 8) & 0xFF;
-                    uint8_t b = (base_col >> 16) & 0xFF;
-
-                    // build a new color with *slider* alpha
-                    uint8_t a = uint8_t(tf2d_dot_opacity * 255.0f);
-                    ImU32 col = IM_COL32(r, g, b, a);
-
-                    // draw each circle with its own opacity
-                    dl->AddCircleFilled(ImVec2((float)pp.x, (float)pp.y), 0.5f, col);
-                }
-            }
+            if (!gradMode)
+                ImPlot::SetupAxes("Scalar Value", "Gradient Magnitude");
             else
+                ImPlot::SetupAxes("Gradient Magnitude","Scalar Value");
+
+            ImPlot::PushColormap(ImPlotColormap_Viridis);
+            ImPlotPoint p_lo = gradMode ? ImPlotPoint(AppState::TF2D_BINS, 0) : ImPlotPoint(0, 0);
+            ImPlotPoint p_hi = gradMode ? ImPlotPoint(0, AppState::TF2D_BINS) : ImPlotPoint(AppState::TF2D_BINS, AppState::TF2D_BINS);
+
+            ImPlot::PlotHeatmap("##heatmap", data, AppState::TF2D_BINS, AppState::TF2D_BINS, 0.0, dmax, nullptr, p_lo, p_hi, ImPlotHeatmapFlags_None);
+
+        ImPlot::PopColormap();
+
+        auto dl = ImPlot::GetPlotDrawList();
+        ImPlot::PushPlotClipRect();
+
+        // dots
+        if (tf2d_overlay_mode == 0) 
+        {
+            for (size_t i = 0; i < persistence_bins.size(); ++i)
             {
-                // draw translucent rectangles
-                std::unordered_map<ImU32,std::array<int,4>> bounds;
-                bounds.reserve(persistence_bins.size());
+                auto &bin = persistence_bins[i];
+                ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(bin.first + 0.5f, (AppState::TF2D_BINS - 1 - bin.second) + 0.5f));
+                ImU32 base_col = (i < persistence_bin_colors.size()) ? persistence_bin_colors[i] : IM_COL32(0,255,0,200);
+                uint8_t r =  base_col & 0xFF;
+                uint8_t g = (base_col >> 8) & 0xFF;
+                uint8_t b = (base_col >> 16) & 0xFF;
+                uint8_t a = uint8_t(tf2d_dot_opacity * 255.0f);
+                dl->AddCircleFilled({(float)pp.x, (float)pp.y}, 0.5f, IM_COL32(r,g,b,a));
+            }
+        }
+        else // rects mode 
+        {
+            // group into bounding boxes
+            std::unordered_map<ImU32,std::array<int,4>> bounds;
+            bounds.reserve(persistence_bins.size());
+            for (size_t i = 0; i < persistence_bins.size(); ++i)
+            {
+                auto [s, gbin] = persistence_bins[i];
+                int fg = (AppState::TF2D_BINS - 1) - gbin;
+                ImU32 col = persistence_bin_colors[i];
 
-                for (size_t i = 0; i < persistence_bins.size(); ++i)
+                auto it = bounds.find(col);
+                if (it == bounds.end())
+                    bounds.emplace(col, std::array<int,4>{ s, s, fg, fg });
+                else
                 {
-                    auto [s, gbin] = persistence_bins[i];
-                    int fg = (AppState::TF2D_BINS - 1) - gbin;
-                    ImU32 base_col = persistence_bin_colors[i];
-
-                    // only insert the box on first sighting
-                    auto it = bounds.find(base_col);
-                    if (it == bounds.end())
-                    {
-                        bounds.emplace(base_col, std::array<int,4>{ s, s, fg, fg });
-                    }
-                    else
-                    {
-                        auto &bb = it->second;
-                        bb[0] = std::min(bb[0], s);
-                        bb[1] = std::max(bb[1], s);
-                        bb[2] = std::min(bb[2], fg);
-                        bb[3] = std::max(bb[3], fg);
-                    }
-                }
-
-                // draw each rect with chosen opacity
-                for (auto &kv : bounds)
-                {
-                    ImU32 base_col = kv.first;
-                    auto &bin = kv.second;
-
-                    // unpack RGB
-                    uint8_t r =  base_col & 0xFF;
-                    uint8_t g = (base_col >> 8) & 0xFF;
-                    uint8_t b = (base_col >> 16) & 0xFF;
-                    uint8_t a = uint8_t(tf2d_rect_opacity * 255.0f);
-
-                    ImU32 col = IM_COL32(r, g, b, a);
-
-                    ImPlotPoint p0 = ImPlot::PlotToPixels(ImPlotPoint(double(bin[0]), double(bin[2])));
-                    ImPlotPoint p1 = ImPlot::PlotToPixels(ImPlotPoint(double(bin[1] + 1), double(bin[3] + 1)));
-
-                    dl->AddRectFilled(ImVec2((float)p0.x, (float)p0.y), ImVec2((float)p1.x, (float)p1.y), col);
+                    auto &bb = it->second;
+                    bb[0] = std::min(bb[0], s);
+                    bb[1] = std::max(bb[1], s);
+                    bb[2] = std::min(bb[2], fg);
+                    bb[3] = std::max(bb[3], fg);
                 }
             }
+
+            // draw rectangles
+            for (auto &kv : bounds)
+            {
+                ImU32 base_col = kv.first;
+                auto &bin = kv.second;
+                uint8_t r =  base_col & 0xFF;
+                uint8_t g = (base_col >> 8) & 0xFF;
+                uint8_t b = (base_col >> 16) & 0xFF;
+                uint8_t a = uint8_t(tf2d_rect_opacity * 255.0f);
+                ImU32 col = IM_COL32(r, g, b, a);
+
+                ImPlotPoint p0 = ImPlot::PlotToPixels({double(bin[0]), double(bin[2])});
+                ImPlotPoint p1 = ImPlot::PlotToPixels({double(bin[1] + 1), double(bin[3] + 1)});
+
+                dl->AddRectFilled({(float)p0.x, (float)p0.y}, {(float)p1.x, (float)p1.y}, col);
+            }
+
+            // draw the per‐bin dots on top
+            for (size_t i = 0; i < persistence_bins.size(); ++i)
+            {
+                auto &bin = persistence_bins[i];
+                ImPlotPoint pp = ImPlot::PlotToPixels(ImPlotPoint(bin.first + 0.5f, (AppState::TF2D_BINS - 1 - bin.second) + 0.5f));
+                ImU32 base_col = persistence_bin_colors[i];
+                uint8_t r =  base_col & 0xFF;
+                uint8_t g = (base_col >> 8) & 0xFF;
+                uint8_t b = (base_col >> 16) & 0xFF;
+                uint8_t a = uint8_t(tf2d_dot_opacity * 255.0f);
+                dl->AddCircleFilled({ (float)pp.x, (float)pp.y }, 0.5f, IM_COL32(r,g,b,a));
+            }
+        }
+        ImPlot::PopPlotClipRect(); 
 
             // interactive ctrl+drag, resize, move
             ImGuiIO& io = ImGui::GetIO();
@@ -1652,12 +1780,11 @@ void UI::draw(vk::CommandBuffer& cb, AppState& app_state)
             }
 
             // draw brush points
-            int bins = AppState::TF2D_BINS;
-            for (int gy = 0; gy < bins; ++gy)
+            for (int gy = 0; gy < AppState::TF2D_BINS; ++gy)
             {
-                for (int sx = 0; sx < bins; ++sx)
+                for (int sx = 0; sx < AppState::TF2D_BINS; ++sx)
                 {
-                    int idx = gy*bins + sx;
+                    int idx = gy * AppState::TF2D_BINS + sx;
                     int hits = brush_hits[idx];
                     if (hits)
                     {

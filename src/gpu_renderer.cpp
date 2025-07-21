@@ -15,8 +15,7 @@
 
 struct GPUContext 
 {
-    GPUContext(AppState &app_state, const Volume &volume)
-        : vcc(vmc), wc(vmc, vcc)
+    GPUContext(AppState &app_state, const Volume &volume, std::vector<PersistencePair>&& raw_pairs, std::vector<int>&& raw_filt, std::vector<PersistencePair>&& raw_grad_pairs, std::vector<int>&& raw_grad_filt) : vcc(vmc), wc(vmc, vcc, std::move(raw_pairs), std::move(raw_filt), std::move(raw_grad_pairs), std::move(raw_grad_filt))
     {
         vmc.construct(app_state.get_window_extent().width, app_state.get_window_extent().height);
         vcc.construct();
@@ -356,7 +355,7 @@ int gpu_render(const Volume &volume)
     }
 
     EventHandler eh;
-    GPUContext gpu_context(app_state, volume);
+    GPUContext gpu_context(app_state, volume, std::move(raw_pairs), std::move(filtration_values), std::move(raw_grad_pairs), std::move(grad_filtration_values));
 
     auto t0 = std::chrono::high_resolution_clock::now();
     gpu_context.wc.set_persistence_pairs(std::move(filtered_norm_pairs), volume);

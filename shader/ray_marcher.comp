@@ -34,7 +34,7 @@ layout(push_constant) uniform DisplayMode { PushConstants pc; };
 layout(constant_id = 0) const uint volume_width = 1;
 layout(constant_id = 1) const uint volume_height = 1;
 layout(constant_id = 2) const uint volume_depth = 1;
-layout(constant_id = 3) const uint TF2D_BINS = 256;
+layout(constant_id = 3) const uint TF2D_BINS = 1;
 
 layout(binding = 0) readonly buffer Volume { uint8_t volume_data[]; };
 layout(binding = 1) readonly buffer TransferFunctionBuffer { vec4 transfer_function[]; };
@@ -54,11 +54,11 @@ float compMin(vec3 v)
     return min(min(v.x, v.y), v.z);
 }
 
-bool intersect(vec3 origin, vec3 dir, out float out_t)
+bool intersect(vec3 origin, vec3 dir, vec3 box_min, vec3 box_max, out float out_t)
 {
     // ray tracing gems II
-    vec3 t_lower = (vec3(-1.0) - origin) / dir;
-    vec3 t_upper = (vec3(1.0) - origin) / dir;
+    vec3 t_lower = (box_min - origin) / dir;
+    vec3 t_upper = (box_max - origin) / dir;
     // the four t-intervals (for x-/y-/z-slabs, and ray p(t))
     vec3 t_mins = min(t_lower, t_upper);
     vec3 t_maxes = max(t_lower, t_upper);
@@ -141,7 +141,12 @@ vec3 ray_march(Ray ray)
     const float highlight_step = 0.001;
     const uint  max_iterations = 2000u;
 
-    bool hit = intersect(ray.origin, ray.dir, t);
+    float max_dim = max(volume_width, max(volume_depth, volume_height));
+    vec3 box_dims = vec3(volume_width / max_dim, volume_height / max_dim, volume_depth / max_dim) * 2.0;
+    vec3 box_min = -box_dims / 2.0;
+    vec3 box_max = box_dims / 2.0;
+
+    bool hit = intersect(ray.origin, ray.dir, box_min, box_max, t);
     if (!hit)
     {
         return vec3(1.0); // white background on miss
@@ -154,13 +159,13 @@ vec3 ray_march(Ray ray)
         {
             vec3 pos = ray.origin + (t + 1e-4) * ray.dir;
             // leave volume?
-            if (any(lessThan(pos, vec3(-1.0))) || any(greaterThan(pos, vec3( 1.0))))
+            if (any(lessThan(pos, box_min)) || any(greaterThan(pos, box_max)))
             {
                 break;
             }
 
             // sample scalar with trilinear interpolation
-            vec3 vf = (pos + 1.0) * 0.5 * vec3(volume_width, volume_height, volume_depth);
+            vec3 vf = ((pos - box_min) / box_dims) * vec3(volume_width, volume_height, volume_depth);
             uvec3 p0 = uvec3(floor(vf));
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
@@ -208,12 +213,12 @@ vec3 ray_march(Ray ray)
         for (uint i = 0u; i < max_iterations; ++i)
         {
             vec3 pos = ray.origin + (t + 1e-4) * ray.dir;
-            if (any(lessThan(pos, vec3(-1.0))) || any(greaterThan(pos, vec3( 1.0))))
+            if (any(lessThan(pos, box_min)) || any(greaterThan(pos, box_max)))
             {
                 break;
             }
 
-            vec3 vf = (pos + 1.0) * 0.5 * vec3(volume_width, volume_height, volume_depth);
+            vec3 vf = ((pos - box_min) / box_dims) * vec3(volume_width, volume_height, volume_depth);
             uvec3 p0 = uvec3(floor(vf));
             vec3  weight = fract(vf);
             float density = trilinear_interpolate(p0, weight);
